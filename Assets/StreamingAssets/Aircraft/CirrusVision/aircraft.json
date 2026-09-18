@@ -1,0 +1,12 @@
+{
+  "id": "CirrusVision",
+  "name": "Cirrus Vision SF50",
+  "manufacturer": "Cirrus",
+  "variant": "G2+ Default",
+  "icon": "icon.png",
+  "scene_object": "CirrusVision",
+  "prefab_resource_path": "",
+  "gear_height_m": 1.145,
+  "spawn_clearance_m": 0.05,
+  "selectable": true
+}
