@@ -7,22 +7,21 @@ namespace CirrusFS.Sim
 {
     /// Loads and validates sceneries.json from StreamingAssets.
     ///
-    /// Validation is deliberately lenient in one direction only: a malformed airport is
-    /// dropped with a clear error and the rest of the file still loads, so a typo in one
-    /// coordinate cannot leave the player staring at an empty menu. A malformed file, on the
-    /// other hand, fails loudly - there is nothing sensible to fall back to.
+    /// The file is small on purpose: it names the airports and regions and carries the handful of
+    /// facts a model cannot state. Everything positional - where a scenery is, which way it
+    /// faces, how big it is, where you can start from - comes from the models themselves.
+    ///
+    /// Validation is lenient in one direction only: a malformed entry is dropped with a clear
+    /// error and the rest still loads, so one typo cannot leave the player staring at an empty
+    /// menu. A malformed file fails loudly, because there is nothing sensible to fall back to.
     public static class SceneryCatalog
     {
         public const string FileName = "sceneries.json";
 
-        /// Airports further from their region pivot than this are almost certainly a
-        /// copy-paste error (wrong region, swapped lat/lon), not a real entry.
-        public const double MaxPivotDistanceMetres = 400000.0;
-
         public static string FilePath => Path.Combine(Application.streamingAssetsPath, FileName);
 
-        /// Reads and validates the database. Returns an empty database plus an error string if
-        /// the file is missing or unparseable; never returns null.
+        /// Reads and validates the database. Returns an empty one plus an error string if the
+        /// file is missing or unparseable; never returns null.
         public static SceneryDatabase Load(out string error)
         {
             string path = FilePath;
@@ -48,18 +47,20 @@ namespace CirrusFS.Sim
 
             if (database == null)
             {
-                error = $"'{path}' parsed to nothing. The root must be an object with a " +
-                        "\"sceneries\" array - JsonUtility cannot read a top-level array.";
+                error = $"'{path}' parsed to nothing. The root must be an object with \"airports\" " +
+                        "and \"regions\" arrays - JsonUtility cannot read a top-level array.";
                 Debug.LogError($"[SceneryCatalog] {error}");
                 return new SceneryDatabase();
             }
 
-            database.sceneries ??= new List<SceneryData>();
+            database.airports ??= new List<AirportData>();
+            database.regions ??= new List<RegionData>();
+
             Validate(database);
 
-            if (database.SceneryCount == 0)
+            if (database.AirportCount == 0)
             {
-                error = $"'{path}' contains no usable scenery.";
+                error = $"'{path}' contains no usable airports.";
                 Debug.LogError($"[SceneryCatalog] {error}");
                 return database;
             }
@@ -68,52 +69,43 @@ namespace CirrusFS.Sim
             return database;
         }
 
-        /// Drops entries that cannot be spawned and logs exactly why.
+        /// Drops entries that cannot be used and logs exactly why.
         static void Validate(SceneryDatabase database)
         {
-            for (int s = database.sceneries.Count - 1; s >= 0; s--)
+            for (int i = database.airports.Count - 1; i >= 0; i--)
             {
-                SceneryData scenery = database.sceneries[s];
+                AirportData airport = database.airports[i];
+                string airportError = "null entry";
 
-                // Seeded, because the null check short-circuits before IsValid can assign it.
-                string sceneryError = "null entry";
-
-                if (scenery == null || !scenery.IsValid(out sceneryError))
+                if (airport == null || !airport.IsValid(out airportError))
                 {
-                    Debug.LogError($"[SceneryCatalog] Dropping scenery: {sceneryError}");
-                    database.sceneries.RemoveAt(s);
+                    Debug.LogError($"[SceneryCatalog] Dropping airport: {airportError}");
+                    database.airports.RemoveAt(i);
                     continue;
                 }
 
-                scenery.airports ??= new List<AirportData>();
-
-                for (int a = scenery.airports.Count - 1; a >= 0; a--)
+                for (int j = 0; j < i; j++)
                 {
-                    AirportData airport = scenery.airports[a];
-                    string airportError = "null entry";
-
-                    if (airport == null || !airport.IsValid(out airportError))
+                    if (database.airports[j] != null &&
+                        string.Equals(database.airports[j].icao, airport.icao,
+                                      StringComparison.OrdinalIgnoreCase))
                     {
-                        Debug.LogError($"[SceneryCatalog] {scenery.Id}: dropping airport: {airportError}");
-                        scenery.airports.RemoveAt(a);
-                        continue;
-                    }
-
-                    double distance = GeoMath.HaversineDistance(scenery.PivotLatitude, scenery.PivotLongitude,
-                                                                airport.Latitude, airport.Longitude);
-                    if (distance > MaxPivotDistanceMetres)
-                    {
-                        Debug.LogError($"[SceneryCatalog] {scenery.Id}: dropping {airport.Icao}, it is " +
-                                       $"{distance / 1000.0:F0} km from the region pivot - check the " +
-                                       "coordinates are not swapped or in the wrong region.");
-                        scenery.airports.RemoveAt(a);
+                        Debug.LogError($"[SceneryCatalog] Dropping duplicate airport '{airport.Icao}'.");
+                        database.airports.RemoveAt(i);
+                        break;
                     }
                 }
+            }
 
-                if (scenery.airports.Count == 0)
+            for (int i = database.regions.Count - 1; i >= 0; i--)
+            {
+                RegionData region = database.regions[i];
+                string regionError = "null entry";
+
+                if (region == null || !region.IsValid(out regionError))
                 {
-                    Debug.LogWarning($"[SceneryCatalog] {scenery.Id} has no airports and will not be listed.");
-                    database.sceneries.RemoveAt(s);
+                    Debug.LogError($"[SceneryCatalog] Dropping region: {regionError}");
+                    database.regions.RemoveAt(i);
                 }
             }
         }

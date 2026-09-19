@@ -127,6 +127,12 @@ namespace CirrusFS.Sim
             if (floatingOrigin != null) floatingOrigin.SetTrackedAircraft(null);
             if (spawner != null) spawner.Despawn();
 
+            // The HUD is IMGUI and draws whenever it has an aircraft, so it has to be cut loose
+            // or it paints over the menu. Clearing the camera target leaves the camera parked on
+            // the last view, which makes a reasonable backdrop.
+            if (hud != null) hud.aircraft = null;
+            if (chaseCamera != null) chaseCamera.target = null;
+
             if (hudRoot != null) hudRoot.SetActive(false);
             if (menuRoot != null) menuRoot.SetActive(true);
 

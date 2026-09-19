@@ -4,44 +4,55 @@ using UnityEngine;
 
 namespace CirrusFS.Sim
 {
-    /// One scenery region: a single large model whose pivot sits at a known lat/lon, plus
-    /// every airport modelled inside it.
+    /// A region scenery: terrain you fly over but cannot start from.
     ///
-    /// Field names are the JSON wire format (see AirportData for why they are snake_case).
+    /// Mechanically identical to an airport scenery - same component, same anchors, same
+    /// georeferencing - and the only difference is that it carries no spawn points. A whole
+    /// archipelago and a single airfield are the same kind of thing here; one just happens to
+    /// have a runway modelled in it.
     [Serializable]
-    public class SceneryData
+    public class RegionData
     {
         public string id = string.Empty;
         public string display_name = string.Empty;
 
-        /// Geodetic coordinate of the model's own pivot - the point that sits at the scenery
-        /// root transform's position. Every airport offset in this region is measured from it.
-        public double pivot_latitude;
-        public double pivot_longitude;
-
-        /// Name of the SceneryRegion component's id in the loaded scene. Left empty, the
-        /// region is matched on `id`.
+        /// Name of the model root carrying the SceneryRegion. Defaults to the id.
         public string scene_object = string.Empty;
 
-        /// Optional Resources path used when the region is not already present in the scene.
-        public string prefab_resource_path = string.Empty;
+        /// Stay loaded whatever the distance. For the wide backdrop that should never pop out.
+        public bool always_loaded;
 
-        public List<AirportData> airports = new List<AirportData>();
-
-        // ---- clean accessors -----------------------------------------------------
+        /// Metres from the aircraft beyond which this scenery stops rendering. 0 means never
+        /// cull. Ignored when always_loaded is set.
+        public float render_distance_m;
 
         public string Id => id;
         public string DisplayName => string.IsNullOrEmpty(display_name) ? id : display_name;
-        public double PivotLatitude => pivot_latitude;
-        public double PivotLongitude => pivot_longitude;
+        public string SceneObject => string.IsNullOrWhiteSpace(scene_object) ? Id : scene_object.Trim();
 
-        /// Offset from the model pivot to an airport, in scene metres, before the region's own
-        /// transform is applied. This is the delta the spawner cancels out.
-        public Vector3 PivotToAirport(AirportData airport)
+        public bool IsValid(out string error)
         {
-            return GeoMath.GeoToLocal(airport.Latitude, airport.Longitude,
-                                      pivot_latitude, pivot_longitude);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                error = "region has no id";
+                return false;
+            }
+
+            error = null;
+            return true;
         }
+    }
+
+    /// Root of sceneries.json: two flat lists, no nesting. JsonUtility cannot deserialise a
+    /// top-level array, so the file has to be an object wrapping them.
+    [Serializable]
+    public class SceneryDatabase
+    {
+        public List<AirportData> airports = new List<AirportData>();
+        public List<RegionData> regions = new List<RegionData>();
+
+        public int AirportCount => airports?.Count ?? 0;
+        public int RegionCount => regions?.Count ?? 0;
 
         public AirportData FindAirport(string icao)
         {
@@ -59,85 +70,45 @@ namespace CirrusFS.Sim
             return null;
         }
 
-        public bool IsValid(out string error)
+        public RegionData FindRegion(string regionId)
         {
-            if (string.IsNullOrWhiteSpace(id))
+            if (string.IsNullOrEmpty(regionId) || regions == null) return null;
+
+            for (int i = 0; i < regions.Count; i++)
             {
-                error = "scenery has no id";
-                return false;
-            }
-
-            if (!GeoMath.IsValidLatitude(pivot_latitude) || !GeoMath.IsValidLongitude(pivot_longitude))
-            {
-                error = $"{id}: pivot coordinate out of range ({pivot_latitude}, {pivot_longitude})";
-                return false;
-            }
-
-            error = null;
-            return true;
-        }
-    }
-
-    /// Root of sceneries.json. JsonUtility cannot deserialise a top-level array, so the file
-    /// has to be an object with this one member.
-    [Serializable]
-    public class SceneryDatabase
-    {
-        public List<SceneryData> sceneries = new List<SceneryData>();
-
-        public int SceneryCount => sceneries?.Count ?? 0;
-
-        public SceneryData FindScenery(string sceneryId)
-        {
-            if (string.IsNullOrEmpty(sceneryId) || sceneries == null) return null;
-
-            for (int i = 0; i < sceneries.Count; i++)
-            {
-                if (sceneries[i] != null &&
-                    string.Equals(sceneries[i].id, sceneryId, StringComparison.OrdinalIgnoreCase))
+                if (regions[i] != null &&
+                    string.Equals(regions[i].id, regionId, StringComparison.OrdinalIgnoreCase))
                 {
-                    return sceneries[i];
+                    return regions[i];
                 }
             }
 
             return null;
         }
 
-        /// Every airport in the database, flattened and paired with its region, ready for the
-        /// airport list panel.
-        public List<AirportRef> AllAirports()
+        /// Every airport that has at least one start, paired with its default one. This is what
+        /// the airport list shows - an airport with no spawn points in its model is not
+        /// something you can depart from, so it is not offered.
+        public List<AirportRef> SelectableAirports()
         {
             var result = new List<AirportRef>();
-            if (sceneries == null) return result;
+            if (airports == null) return result;
 
-            for (int s = 0; s < sceneries.Count; s++)
+            for (int i = 0; i < airports.Count; i++)
             {
-                SceneryData scenery = sceneries[s];
-                if (scenery?.airports == null) continue;
+                AirportData airport = airports[i];
+                if (airport?.DefaultStart == null) continue;
 
-                for (int a = 0; a < scenery.airports.Count; a++)
-                {
-                    if (scenery.airports[a] != null)
-                    {
-                        result.Add(new AirportRef(scenery, scenery.airports[a]));
-                    }
-                }
+                result.Add(new AirportRef(airport));
             }
 
             return result;
         }
 
-        public AirportRef FindAirport(string icao)
+        public AirportRef FindSelectableAirport(string icao)
         {
-            if (string.IsNullOrEmpty(icao) || sceneries == null) return default;
-
-            for (int s = 0; s < sceneries.Count; s++)
-            {
-                AirportData airport = sceneries[s]?.FindAirport(icao);
-                if (airport != null) return new AirportRef(sceneries[s], airport);
-            }
-
-            return default;
+            AirportData airport = FindAirport(icao);
+            return airport?.DefaultStart != null ? new AirportRef(airport) : default;
         }
     }
 }

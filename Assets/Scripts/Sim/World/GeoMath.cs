@@ -9,7 +9,7 @@ namespace CirrusFS.Sim
     /// clockwise from true north, which maps straight onto Unity's yaw.
     ///
     /// Everything is computed in double. A single-precision latitude already costs ~0.5 m of
-    /// position at Osaka's latitude, and the pivot-to-airport deltas here run to tens of
+    /// position at these latitudes, and the anchor-to-start deltas here run to tens of
     /// kilometres, so the inputs and the intermediate maths have to stay double; only the
     /// final Vector3 narrows to float (~8 mm of quantisation at 100 km, harmless).
     ///

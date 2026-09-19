@@ -33,6 +33,8 @@ namespace CirrusFS.Sim
 
         [Header("Controls")]
         public Button flyButton;
+        public Button customizeButton;
+        public AirportCustomizePanel customizePanel;
         public TMP_Text selectionSummary;
         public TMP_Text statusText;
 
@@ -50,6 +52,9 @@ namespace CirrusFS.Sim
         public AircraftEntry SelectedAircraft { get; private set; }
 
         public AirportRef SelectedAirport { get; private set; }
+
+        /// The loaded scenery config, after the models have filled in their starts.
+        public SceneryDatabase Database => sceneries;
 
         readonly List<SelectionListItem> aircraftItems = new List<SelectionListItem>();
         readonly List<SelectionListItem> airportItems = new List<SelectionListItem>();
@@ -69,6 +74,8 @@ namespace CirrusFS.Sim
             if (airportContent == null && airportScroll != null) airportContent = airportScroll.content;
 
             if (flyButton != null) flyButton.onClick.AddListener(HandleFlyClicked);
+            if (customizeButton != null) customizeButton.onClick.AddListener(HandleCustomizeClicked);
+            if (customizePanel != null) customizePanel.Confirmed += HandleStartConfirmed;
             if (aircraftSearch != null) aircraftSearch.onValueChanged.AddListener(_ => ApplyAircraftFilter());
             if (airportSearch != null) airportSearch.onValueChanged.AddListener(_ => ApplyAirportFilter());
 
@@ -78,6 +85,8 @@ namespace CirrusFS.Sim
         void OnDestroy()
         {
             if (flyButton != null) flyButton.onClick.RemoveListener(HandleFlyClicked);
+            if (customizeButton != null) customizeButton.onClick.RemoveListener(HandleCustomizeClicked);
+            if (customizePanel != null) customizePanel.Confirmed -= HandleStartConfirmed;
         }
 
         void OnEnable()
@@ -93,9 +102,14 @@ namespace CirrusFS.Sim
         {
             string previousAircraftId = SelectedAircraft?.Id;
             string previousAirportIcao = SelectedAirport.IsValid ? SelectedAirport.Airport.icao : null;
+            string previousStartId = SelectedAirport.IsValid ? SelectedAirport.Start.id : null;
 
             aircraft = AircraftCatalog.LoadAll();
             sceneries = SceneryCatalog.Load(out string sceneryError);
+
+            // The models get the final say on where you can start. This has to happen before the
+            // lists are built, because the customize map draws the starts it finds here.
+            SceneryStartResolver.Apply(sceneries);
 
             BuildAircraftList();
             BuildAirportList();
@@ -104,7 +118,13 @@ namespace CirrusFS.Sim
             SelectedAirport = default;
 
             if (previousAircraftId != null) SelectAircraftById(previousAircraftId);
-            if (previousAirportIcao != null) SelectAirportByIcao(previousAirportIcao);
+
+            if (previousAirportIcao != null && SelectAirportByIcao(previousAirportIcao))
+            {
+                // Keep the customized start across a reload, not just the airport.
+                StartData sameStart = SelectedAirport.Airport.FindStart(previousStartId);
+                if (sameStart != null) SelectAirport(SelectedAirport.WithStart(sameStart));
+            }
 
             if (autoSelectFirst)
             {
@@ -112,7 +132,7 @@ namespace CirrusFS.Sim
 
                 if (!SelectedAirport.IsValid)
                 {
-                    List<AirportRef> all = sceneries.AllAirports();
+                    List<AirportRef> all = sceneries.SelectableAirports();
                     if (all.Count > 0) SelectAirport(all[0]);
                 }
             }
@@ -163,8 +183,11 @@ namespace CirrusFS.Sim
                 return;
             }
 
-            List<AirportRef> airports = sceneries.AllAirports();
-            // Name first, then runway: List.Sort is unstable, so the two ends of one field would
+            // One row per airport. Which runway end or stand to start from is chosen in the
+            // customize panel, so a field with two modelled ends is still a single entry here.
+            List<AirportRef> airports = sceneries.SelectableAirports();
+
+            // Name first, then ICAO: List.Sort is unstable, so two fields sharing a name would
             // otherwise swap places between rebuilds.
             airports.Sort((a, b) =>
             {
@@ -172,8 +195,7 @@ namespace CirrusFS.Sim
                                             StringComparison.OrdinalIgnoreCase);
                 return byName != 0
                     ? byName
-                    : string.Compare(a.Airport.RunwayLabel, b.Airport.RunwayLabel,
-                                     StringComparison.OrdinalIgnoreCase);
+                    : string.Compare(a.Airport.Icao, b.Airport.Icao, StringComparison.OrdinalIgnoreCase);
             });
 
             EnsurePool(airportItems, airportItemPrefab, airportContent, airports.Count);
@@ -184,13 +206,15 @@ namespace CirrusFS.Sim
                 SelectionListItem item = airportItems[i];
 
                 item.SetVisible(true);
-                // The runway belongs in the row: a field with two modelled ends shows up twice
-                // under the same name and ICAO, and the pair has to be told apart.
+
+                // Name and ICAO only. `features` still goes into the search key below, it just
+                // has no column of its own.
                 item.Bind(new SelectionListItem.Content(reference.Airport.DisplayName,
-                                                        $"{reference.Airport.Icao}   {reference.Airport.RunwayLabel}",
-                                                        reference.Airport.features),
+                                                        reference.Airport.Icao,
+                                                        null),
                           reference,
                           HandleAirportClicked);
+                item.AppendSearchKey(reference.Airport.features);
             }
 
             boundAirportCount = airports.Count;
@@ -254,7 +278,7 @@ namespace CirrusFS.Sim
 
         public bool SelectAirportByIcao(string icao)
         {
-            AirportRef found = sceneries.FindAirport(icao);
+            AirportRef found = sceneries.FindSelectableAirport(icao);
             if (!found.IsValid) return false;
 
             SelectAirport(found);
@@ -271,9 +295,7 @@ namespace CirrusFS.Sim
             for (int i = 0; i < boundAirportCount; i++)
             {
                 AirportRef reference = airportItems[i].PayloadAs<AirportRef>();
-                bool selected = SelectedAirport.IsValid &&
-                                ReferenceEquals(reference.Airport, SelectedAirport.Airport);
-                airportItems[i].SetSelected(selected);
+                airportItems[i].SetSelected(SelectedAirport.SameAirport(reference));
             }
 
             UpdateSummary();
@@ -305,7 +327,32 @@ namespace CirrusFS.Sim
                 flyButton.interactable = SelectedAircraft != null && SelectedAirport.IsValid;
             }
 
+            // Customize needs an airport but not an aircraft: picking a gate before picking
+            // what to sit on it is a perfectly normal order.
+            if (customizeButton != null) customizeButton.interactable = SelectedAirport.IsValid;
+
             UpdateSummary();
+        }
+
+        void HandleCustomizeClicked()
+        {
+            if (customizePanel == null)
+            {
+                Debug.LogWarning("[StartMenu] No customize panel assigned.");
+                return;
+            }
+
+            if (!SelectedAirport.IsValid) return;
+
+            customizePanel.Open(SelectedAirport);
+        }
+
+        void HandleStartConfirmed(AirportRef reference)
+        {
+            if (!reference.IsValid) return;
+
+            SelectAirport(reference);
+            RefreshSelectionVisuals();
         }
 
         void UpdateSummary()
@@ -324,7 +371,7 @@ namespace CirrusFS.Sim
 
             string airportPart = SelectedAirport.IsValid
                 ? $"{SelectedAirport.Airport.Icao} {SelectedAirport.Airport.DisplayName} - " +
-                  $"{SelectedAirport.Airport.RunwayLabel}"
+                  $"{SelectedAirport.Start.Label}"
                 : "<select an airport>";
 
             selectionSummary.text = $"{aircraftPart}   |   {airportPart}";
@@ -359,9 +406,11 @@ namespace CirrusFS.Sim
                 return;
             }
 
-            int airportCount = sceneries.AllAirports().Count;
-            statusText.text = $"{aircraft.Count} aircraft - {airportCount} airports in " +
-                              $"{sceneries.SceneryCount} region{(sceneries.SceneryCount == 1 ? "" : "s")}";
+            int airportCount = sceneries.SelectableAirports().Count;
+            int regionCount = sceneries.RegionCount;
+            statusText.text = $"{aircraft.Count} aircraft - {airportCount} airport" +
+                              $"{(airportCount == 1 ? "" : "s")} - " +
+                              $"{regionCount} region{(regionCount == 1 ? "" : "s")}";
         }
     }
 }

@@ -1,74 +1,37 @@
 {
-  "sceneries": [
+  "airports": [
     {
-      "id": "osaka_region",
-      "display_name": "Osaka Bay",
-      "pivot_latitude": 34.629253,
-      "pivot_longitude": 135.223367,
-      "scene_object": "osaka_scenery",
-      "prefab_resource_path": "",
-      "airports": [
+      "icao": "RJTT",
+      "name": "Tokyo Haneda",
+      "scene_object": "RJTT",
+      "elevation_m": 6.4,
+      "magnetic_variation_deg": -7.9,
+      "features": "3D"
+    },
         {
-          "icao": "RJBE",
-          "name": "Kobe Airport",
-          "runway_id": "27",
-          "runway_latitude": 34.633868,
-          "runway_longitude": 135.236276,
-          "runway_heading": 264.59,
-          "elevation_m": 6.7,
-          "features": "3D"
-        },
-        {
-          "icao": "RJBE",
-          "name": "Kobe Airport",
-          "runway_id": "09",
-          "runway_latitude": 34.631932,
-          "runway_longitude": 135.211524,
-          "runway_heading": 84.59,
-          "elevation_m": 6.7,
-          "features": "3D"
-        },
-        {
-          "icao": "RJBB",
-          "name": "Kansai International",
-          "runway_id": "06L",
-          "runway_latitude": 34.4218,
-          "runway_longitude": 135.2308,
-          "runway_heading": 60.0,
-          "elevation_m": 5.0,
-          "features": "3D"
-        },
-        {
-          "icao": "RJOO",
-          "name": "Osaka Itami",
-          "runway_id": "32L",
-          "runway_latitude": 34.7930,
-          "runway_longitude": 135.4530,
-          "runway_heading": 320.0,
-          "elevation_m": 15.0,
-          "features": "Autogen"
-        }
-      ]
+      "icao": "RKPC",
+      "name": "Jeju",
+      "scene_object": "RKPC",
+      "elevation_m": 6.4,
+      "magnetic_variation_deg": -7.9,
+      "features": "3D"
     },
     {
-      "id": "kanto_region",
-      "display_name": "Kanto",
-      "pivot_latitude": 35.552258,
-      "pivot_longitude": 139.779694,
-      "scene_object": "KantoRegion",
-      "prefab_resource_path": "Scenery/KantoRegion",
-      "airports": [
-        {
-          "icao": "RJTT",
-          "name": "Tokyo Haneda",
-          "runway_id": "34R",
-          "runway_latitude": 35.5350,
-          "runway_longitude": 139.7790,
-          "runway_heading": 337.0,
-          "elevation_m": 6.4,
-          "features": "3D"
-        }
-      ]
+      "icao": "RJBB",
+      "name": "Kansai International",
+      "scene_object": "RJBB",
+      "elevation_m": 5.0,
+      "magnetic_variation_deg": -7.5,
+      "features": "3D"
+    }
+  ],
+  "regions": [
+    {
+      "id": "japan_region",
+      "display_name": "Japan",
+      "scene_object": "japan_global",
+      "always_loaded": true,
+      "render_distance_m": 0
     }
   ]
 }

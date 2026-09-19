@@ -52,8 +52,12 @@ namespace CirrusFS.Sim
         /// instantiated from a prefab. It decides whether despawning destroys or just hides it.
         public bool CurrentAircraftFromScene { get; private set; }
 
-        /// Aligns the scenery, spawns the aircraft on the runway and returns it, or null if
+        /// Places the scenery, spawns the aircraft on the chosen start and returns it, or null if
         /// anything in the chain was missing. Every failure is logged with the reason.
+        ///
+        /// The departure airport is placed by its own start marker, which is exact. Every other
+        /// scenery in the scene is then placed by the same geodetic point through its *own*
+        /// anchors, so none of them inherits another's error.
         public GameObject Spawn(AircraftEntry aircraft, AirportRef airport)
         {
             if (aircraft?.Data == null)
@@ -68,31 +72,42 @@ namespace CirrusFS.Sim
                 return null;
             }
 
-            SceneryRegion region = ResolveRegion(airport.Scenery);
-            if (region == null) return null;
+            SceneryRegion scenery = ResolveScenery(airport.Airport);
+            if (scenery == null) return null;
 
-            if (deactivateOtherRegions) DeactivateOtherRegions(region);
-            if (!region.gameObject.activeSelf) region.gameObject.SetActive(true);
+            if (!scenery.gameObject.activeSelf) scenery.gameObject.SetActive(true);
 
-            // Order matters: the region has to be aligned before the aircraft is placed,
-            // because the spawn height is read off the aligned surface.
-            if (!region.AlignAirportToOrigin(airport.Scenery, airport.Airport)) return null;
+            // The streamer may have culled this scenery while the menu was up, using whatever
+            // the camera was looking at. Alignment raycasts for the surface, so its colliders
+            // have to be back before that runs.
+            scenery.SetContentVisible(true);
 
-            // Scene (0, 0, 0) is now this runway, with north along the region's yaw. Everything
-            // geodetic is measured from here.
-            WorldOrigin.SetReference(airport.Airport.Latitude, airport.Airport.Longitude,
-                                     region.NorthYawDeg);
+            // Order matters: the scenery has to be placed before the aircraft, because the spawn
+            // height is read off the aligned surface.
+            if (!scenery.AlignStartToOrigin(airport.Airport, airport.Start)) return null;
 
-            GameObject spawned = PlaceAircraft(aircraft, airport.Airport, region);
+            // Scene (0, 0, 0) is now this start. The coordinate was derived from the marker, so
+            // it describes where the aircraft actually is rather than where a config guessed.
+            WorldOrigin.SetReference(airport.Start.latitude, airport.Start.longitude,
+                                     scenery.NorthYawDeg);
+
+            PlaceOtherSceneries(airport, scenery);
+
+            GameObject spawned = PlaceAircraft(aircraft, airport.Start, scenery);
             if (spawned == null) return null;
 
             CurrentAircraft = spawned;
-            CurrentRegion = region;
+            CurrentRegion = scenery;
             CurrentAirport = airport;
 
             Debug.Log($"[FlightSpawner] {aircraft.Data.DisplayName} on {airport.Airport.Icao} " +
-                      $"{airport.Airport.RunwayLabel}, heading {airport.Airport.HeadingDeg:F0} deg. " +
+                      $"{airport.Start.Label}, heading {airport.Start.HeadingDeg:F0} deg true. " +
                       $"{WorldOrigin.Describe()}");
+
+            // Settle the world now rather than up to a tick later, so nothing distant is still
+            // drawn on the first frame of the flight.
+            SceneryStreamer streamer = FindFirstObjectByType<SceneryStreamer>();
+            if (streamer != null) streamer.Refresh();
 
             onAircraftSpawned.Invoke(spawned);
             return spawned;
@@ -114,50 +129,65 @@ namespace CirrusFS.Sim
 
         // ---- scenery -------------------------------------------------------------
 
-        SceneryRegion ResolveRegion(SceneryData scenery)
+        SceneryRegion ResolveScenery(AirportData airport)
         {
-            // scene_object names an instance already in the scene; otherwise match on id.
-            SceneryRegion region = SceneryRegion.Find(scenery.Id);
+            SceneryRegion scenery = SceneryRegion.Find(airport.Icao)
+                                    ?? SceneryRegion.Find(airport.SceneObject);
 
-            if (region == null && !string.IsNullOrWhiteSpace(scenery.scene_object))
+            if (scenery == null)
             {
-                GameObject existing = GameObject.Find(scenery.scene_object);
-                if (existing != null) region = existing.GetComponent<SceneryRegion>();
+                GameObject existing = GameObject.Find(airport.SceneObject);
+                if (existing != null) scenery = existing.GetComponent<SceneryRegion>();
             }
 
-            if (region == null && !string.IsNullOrWhiteSpace(scenery.prefab_resource_path))
+            if (scenery == null)
             {
-                var prefab = Resources.Load<GameObject>(scenery.prefab_resource_path);
-                if (prefab != null)
-                {
-                    region = Instantiate(prefab).GetComponent<SceneryRegion>();
-                    if (region != null) region.sceneryId = scenery.Id;
-                }
+                Debug.LogError($"[FlightSpawner] {airport.Icao}: no SceneryRegion in the scene with that " +
+                               $"id or object name ('{airport.SceneObject}').");
             }
 
-            if (region == null)
-            {
-                Debug.LogError($"[FlightSpawner] No SceneryRegion with id '{scenery.Id}' in the scene, " +
-                               "and no prefab_resource_path to load one from. Add the component to the " +
-                               "region model's root.");
-            }
-
-            return region;
+            return scenery;
         }
 
-        void DeactivateOtherRegions(SceneryRegion keep)
+        /// Places every other scenery for this flight - other airports as well as regions.
+        ///
+        /// Each is placed through its own anchors from the same geodetic point, so nothing
+        /// inherits the departure airport's error. What is too far away to matter gets switched
+        /// off by SceneryStreamer a moment later, not here.
+        void PlaceOtherSceneries(AirportRef airport, SceneryRegion flown)
         {
-            SceneryRegion[] all = FindObjectsByType<SceneryRegion>(FindObjectsInactive.Include,
-                                                                   FindObjectsSortMode.None);
-            for (int i = 0; i < all.Length; i++)
+            // The departure surface sits on y = 0, so sea level belongs at minus the field
+            // elevation - that is what keeps a coastline at the right height under the airport.
+            var seaLevelY = (float)-airport.Airport.elevation_m;
+
+            foreach (SceneryRegion scenery in SceneryRegion.FindAll())
             {
-                if (all[i] != keep && all[i].gameObject.activeSelf) all[i].gameObject.SetActive(false);
+                if (scenery == null || scenery == flown) continue;
+
+                if (!scenery.gameObject.activeSelf) scenery.gameObject.SetActive(true);
+
+                // A scene has exactly one north. Each model maps its geography through its own
+                // rotation, so two sceneries whose norths disagree end up at an angle to each
+                // other. Compare what the *anchors* solve, not the inspector field - a model
+                // with anchors does not need the field set, and reading it would cry wolf.
+                scenery.TryGetAnchorFrame(out _, out float sceneryNorth, out _);
+                flown.TryGetAnchorFrame(out _, out float flownNorth, out _);
+
+                if (Mathf.Abs(Mathf.DeltaAngle(sceneryNorth, flownNorth)) > 1f)
+                {
+                    Debug.LogWarning($"[FlightSpawner] '{scenery.sceneryId}' puts north at " +
+                                     $"{sceneryNorth:F1} deg but '{flown.sceneryId}' uses " +
+                                     $"{flownNorth:F1} deg. Rotate them to match, or set " +
+                                     "modelNorthOffsetDeg, or the two will not line up.", scenery);
+                }
+
+                scenery.AlignToOrigin(airport.Start.latitude, airport.Start.longitude, seaLevelY);
             }
         }
 
         // ---- aircraft ------------------------------------------------------------
 
-        GameObject PlaceAircraft(AircraftEntry aircraft, AirportData airport, SceneryRegion region)
+        GameObject PlaceAircraft(AircraftEntry aircraft, StartData start, SceneryRegion region)
         {
             AircraftData data = aircraft.Data;
 
@@ -186,12 +216,13 @@ namespace CirrusFS.Sim
             bool wasActive = instance.activeSelf;
             if (wasActive) instance.SetActive(false);
 
-            float surfaceY = ProbeSurfaceHeight();
+            float surfaceY = ProbeSurfaceHeight(region);
             var position = new Vector3(0f, surfaceY + data.SpawnHeight, 0f);
 
-            // The runway heading is a true heading, so it is applied in the region's frame:
-            // scene +Z is north only for a region whose root is unrotated.
-            Quaternion rotation = region.GeoToWorldRotation * airport.SpawnRotation;
+            // The region resolved this during alignment: a marker's own facing, or the start's
+            // true heading turned into the region's frame. Either way it is already a world
+            // heading, because scene +Z is north only for a region whose root is unrotated.
+            Quaternion rotation = Quaternion.Euler(0f, region.LastStartHeading, 0f);
 
             instance.transform.SetPositionAndRotation(position, rotation);
             instance.SetActive(true);
@@ -211,9 +242,12 @@ namespace CirrusFS.Sim
             return instance;
         }
 
-        /// Height of the scenery surface at the origin. Zero when the region aligned its runway
-        /// to y = 0, and the real height when it could not.
-        float ProbeSurfaceHeight()
+        /// Height of the flown region's surface at the origin. Zero when the region aligned its
+        /// runway to y = 0, and the real height when it could not.
+        ///
+        /// Only hits belonging to the flown region count: a backdrop mesh crossing the origin
+        /// would otherwise decide where the aircraft sits, which is exactly the wrong answer.
+        float ProbeSurfaceHeight(SceneryRegion region)
         {
             var ray = new Ray(new Vector3(0f, groundProbeHeight, 0f), Vector3.down);
             int count = Physics.RaycastNonAlloc(ray, probeHits, groundProbeHeight + groundProbeDepth,
@@ -224,10 +258,7 @@ namespace CirrusFS.Sim
 
             for (int i = 0; i < count; i++)
             {
-                if (CurrentAircraft != null && probeHits[i].transform.IsChildOf(CurrentAircraft.transform))
-                {
-                    continue;
-                }
+                if (region != null && !probeHits[i].transform.IsChildOf(region.transform)) continue;
 
                 if (!found || probeHits[i].point.y > best)
                 {

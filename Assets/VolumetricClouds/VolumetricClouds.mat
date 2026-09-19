@@ -114,42 +114,42 @@ Material:
     - _AlphaClip: 0
     - _AlphaToMask: 0
     - _AltitudeDistortion: 0.0625
-    - _AmbientProbeDimmer: 1
+    - _AmbientProbeDimmer: 1.237
     - _AtmosphereThickness: 1
     - _Blend: 0
     - _BlendModePreserveSpecular: 1
     - _BumpScale: 1
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
-    - _CloudNearPlane: 494.59207
+    - _CloudNearPlane: 599.937
     - _Cull: 2
     - _Cutoff: 0.5
-    - _DensityMultiplier: 0.32000002
+    - _DensityMultiplier: 0.15015198
     - _DetailAlbedoMapScale: 1
     - _DetailNormalMapScale: 1
     - _DstBlend: 0
     - _DstBlendAlpha: 0
     - _EarthCurvature: 0
-    - _EarthRadius: 1421838
+    - _EarthRadius: 6378100
     - _EnvironmentReflections: 1
-    - _ErosionFactor: 0.8
+    - _ErosionFactor: 0.765
     - _ErosionFactorCompensation: 1
     - _ErosionOcclusion: 0.1
-    - _ErosionScale: 107
+    - _ErosionScale: 75
     - _Exposure: 1.3
-    - _FadeInDistance: 600
-    - _FadeInStart: 400
+    - _FadeInDistance: 2400
+    - _FadeInStart: 1600
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
-    - _HighestCloudAltitude: 1424338
-    - _LowestCloudAltitude: 1422338
+    - _HighestCloudAltitude: 6387100
+    - _LowestCloudAltitude: 6379100
     - _MaxStep: 24
-    - _MaxStepSize: 250
+    - _MaxStepSize: 1000
     - _MediumWindSpeed: 1
     - _Metallic: 0
-    - _MicroErosionFactor: 0.5
-    - _MicroErosionScale: 200
+    - _MicroErosionFactor: 0.574
+    - _MicroErosionScale: 300
     - _MultiScattering: 0.525
     - _NormalizationFactor: 189011.11
     - _NumLightSteps: 2
@@ -160,8 +160,8 @@ Material:
     - _QueueOffset: 0
     - _ReceiveShadows: 1
     - _Seed: 0
-    - _ShapeFactor: 0.9
-    - _ShapeScale: 9
+    - _ShapeFactor: 0.841
+    - _ShapeScale: 2
     - _SmallWindSpeed: 0.25
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
@@ -174,7 +174,7 @@ Material:
     - _SunSize: 0.04
     - _SunSizeConvergence: 5
     - _Surface: 0
-    - _VerticalErosionWindDisplacement: -13.3670025
+    - _VerticalErosionWindDisplacement: -34.468372
     - _VerticalShapeNoiseOffset: 0
     - _VerticalShapeWindDisplacement: 0
     - _WorkflowMode: 1
@@ -189,7 +189,7 @@ Material:
     - _SkyTint: {r: 0.5, g: 0.5, b: 0.5, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _WindDirection: {r: -1, g: -0, b: 0, a: 0}
-    - _WindVector: {r: -5346.803, g: 0, b: 0, a: 0}
+    - _WindVector: {r: -13787.377, g: 0, b: 0, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
 --- !u!114 &4204168956660823475

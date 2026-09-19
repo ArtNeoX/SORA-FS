@@ -131,6 +131,15 @@ namespace CirrusFS.Sim
             SetSelected(false);
         }
 
+        /// Adds text the search box should match on but the row does not show - an airport's
+        /// features tag, for one.
+        public void AppendSearchKey(string extra)
+        {
+            if (string.IsNullOrEmpty(extra)) return;
+
+            SearchKey = $"{SearchKey} {extra.ToLowerInvariant()}";
+        }
+
         public void SetSelected(bool selected)
         {
             IsSelected = selected;
