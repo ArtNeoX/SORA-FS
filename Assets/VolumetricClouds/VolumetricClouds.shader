@@ -363,7 +363,14 @@ Shader "Hidden/Sky/VolumetricClouds"
                 // Reconstruct world position
                 float4 posWS = float4(ComputeWorldSpacePosition(screenUV, depth, UNITY_MATRIX_I_VP), 1.0);
 
-                float4 prevClipPos = mul(_PrevViewProjMatrix, posWS);
+                // Last frame's view-projection is expressed in the pre-shift world, so on the
+                // frame a floating-origin shift lands, the point now at posWS was at
+                // posWS - shift. Without this the motion vector is off by the whole shift,
+                // prevUV falls outside the history and the accumulation is thrown away for a
+                // frame - the clouds flash back to a single noisy raymarch sample.
+                float4 prevPosWS = float4(posWS.xyz - _CloudsOriginShiftDelta.xyz, 1.0);
+
+                float4 prevClipPos = mul(_PrevViewProjMatrix, prevPosWS);
                 float4 curClipPos = mul(_NonJitteredViewProjMatrix, posWS);
 
                 half2 prevPosCS = prevClipPos.xy / prevClipPos.w;

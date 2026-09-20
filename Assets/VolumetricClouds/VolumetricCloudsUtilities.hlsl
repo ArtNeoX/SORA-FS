@@ -413,9 +413,23 @@ void EvaluateCloudProperties(float3 positionPS, float noiseMipOffset, float eros
     // Evaluate the normalized height of the position within the cloud volume
     properties.height = EvaluateNormalizedCloudHeight(positionPS);
 
-    // When rendering in camera space, we still want horizontal scrolling
+    // Floating-origin compensation. A shift moves the camera and the world together by up to
+    // the shift threshold, so anything the raymarch anchors in absolute world space jumps by
+    // that distance and snaps the whole cloud layer in one frame. Adding back the accumulated
+    // shift keeps the noise anchored to the world the flight started in, so a shift is
+    // invisible. It is applied after the height evaluation above, which must keep using the
+    // real geometric altitude. What is absolute differs by mode:
 #ifndef _LOCAL_VOLUMETRIC_CLOUDS
+    // Skybox clouds raymarch from (0, 0, 0) rather than the camera, so only the horizontal
+    // anchor restored on the line below is absolute - the altitude is pinned to the camera
+    // and does not move with a vertical shift.
     positionPS.xz += _WorldSpaceCameraPos.xz;
+    positionPS.xz += _CloudsOriginOffset.xz;
+#else
+    // Local clouds raymarch from the real camera position, and URP has no camera-relative
+    // rendering (GetCameraPositionWS returns _WorldSpaceCameraPos), so the whole position is
+    // absolute and a shift moves it in all three axes.
+    positionPS += _CloudsOriginOffset.xyz;
 #endif
 
     // Evaluate the generic sampling coordinates

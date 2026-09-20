@@ -51,6 +51,15 @@ half _ImprovedTransmittanceBlend;
 float _PostExposure; // Exposure from the ColorAdjustments override
 half3 _SunColor;
 
+// Floating-origin compensation, driven by CirrusFS.Sim.VolumetricCloudsOrigin.
+// xyz: metres to add back to a scene-space position to recover the position it had in the
+// world the clouds were first sampled in, i.e. minus the sum of every origin shift so far.
+// Must stay full float: it reaches into the millions of metres on a long flight.
+float4 _CloudsOriginOffset;
+// xyz: the translation applied to the world this frame, zero on every other frame. Used to
+// pull last frame's reprojection back into the pre-shift world.
+float4 _CloudsOriginShiftDelta;
+
 #ifndef URP_PHYSICALLY_BASED_SKY_DEFINES_INCLUDED
 float4 _PlanetCenterRadius;
 #endif
