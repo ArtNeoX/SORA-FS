@@ -1452,9 +1452,9 @@ MonoBehaviour:
     m_OverrideState: 0
     m_Value: 0.1
   globalWindSpeed:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value:
-      mode: 1
+      mode: 0
       customValue: 100
       additiveValue: 0
       multiplyValue: 1
