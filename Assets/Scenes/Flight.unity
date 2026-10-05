@@ -388,6 +388,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.RectMask2D
   m_Padding: {x: 0, y: 0, z: 0, w: 0}
   m_Softness: {x: 0, y: 0}
+--- !u!1 &170341793 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: f378a3c502d88694c916b4b4bf6a1e7c, type: 3}
+  m_PrefabInstance: {fileID: 1417456050}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &195170248
 GameObject:
   m_ObjectHideFlags: 0
@@ -400,6 +405,7 @@ GameObject:
   - component: {fileID: 195170251}
   - component: {fileID: 195170250}
   - component: {fileID: 195170249}
+  - component: {fileID: 195170253}
   m_Layer: 0
   m_Name: A320CEO
   m_TagString: Untagged
@@ -707,6 +713,56 @@ Transform:
   - {fileID: 1911695374}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &195170253
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 195170248}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 789ea7b8f51e51b42b8292f8aecdf889, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Flight.A320AnimationDriver
+  animator: {fileID: 1911695375}
+  controller: {fileID: 195170249}
+  suspension: {fileID: 195170250}
+  flapVisual:
+  - 0
+  - 0.25
+  - 0.375
+  - 0.5
+  - 1
+  spoilerClipDeg: 50
+  rollSpoilerMaxDeg: 35
+  speedbrakeMaxDeg: 40
+  rollSpoilerDeadband: 0.05
+  spoilerRate: 60
+  idleThrottle: 0.05
+  n1RpmAt100: 5000
+  idleN1: 0.2
+  fanVisualScale: 1
+  invertFanSpin: 0
+  reverserTime: 1.5
+  gearRetractTime: 10
+  gearExtendTime: 12
+  mainStroke: 0.5
+  noseStroke: 0.45
+  noseNeutralFrame: 38
+  mainNeutralFrame: 0
+  invertWheelSpin: 0
+  wheelSpinDown: 4
+  retractBrakeTime: 0.5
+  steerClipDeg: 75
+  pedalSteerDeg: 6
+  tillerBelowKts: 10
+  pedalFadeOutKts: 130
+  steerRate: 30
+  flexMaxG: 2.5
+  flexFrequency: 1.2
+  flexDamping: 0.25
+  stabTrim: 0
 --- !u!1 &196873158
 GameObject:
   m_ObjectHideFlags: 0
@@ -6236,7 +6292,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: f378a3c502d88694c916b4b4bf6a1e7c, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1911695375}
   m_SourcePrefab: {fileID: 100100000, guid: f378a3c502d88694c916b4b4bf6a1e7c, type: 3}
 --- !u!1 &1419705026
 GameObject:
@@ -8259,6 +8318,28 @@ Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: f378a3c502d88694c916b4b4bf6a1e7c, type: 3}
   m_PrefabInstance: {fileID: 1417456050}
   m_PrefabAsset: {fileID: 0}
+--- !u!95 &1911695375
+Animator:
+  serializedVersion: 7
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 170341793}
+  m_Enabled: 1
+  m_Avatar: {fileID: 0}
+  m_Controller: {fileID: 9100000, guid: 7a74e7e1b67a43b47857a5e6bc4cc106, type: 2}
+  m_CullingMode: 1
+  m_UpdateMode: 0
+  m_ApplyRootMotion: 0
+  m_LinearVelocityBlending: 0
+  m_StabilizeFeet: 0
+  m_AnimatePhysics: 0
+  m_WarningMessage: 
+  m_HasTransformHierarchy: 1
+  m_AllowConstantClipSamplingOptimization: 1
+  m_KeepAnimatorStateOnDisable: 0
+  m_WriteDefaultValuesOnDisable: 0
 --- !u!1 &1920470472
 GameObject:
   m_ObjectHideFlags: 0

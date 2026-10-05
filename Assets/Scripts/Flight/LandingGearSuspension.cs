@@ -31,6 +31,9 @@ namespace CirrusFS.Flight
 
             [NonSerialized] public float staticLoad;
             [NonSerialized] public float px, pz;
+            // Live strut compression in metres (0 = unloaded) and ground contact, for visuals.
+            [NonSerialized] public float compression;
+            [NonSerialized] public bool grounded;
         }
 
         public bool enableSuspension = true;
@@ -152,6 +155,9 @@ namespace CirrusFS.Flight
                         contact = hit.point;
                     }
                 }
+
+                gr.compression = restLength - suspLength;
+                gr.grounded = grounded;
 
                 if (force != Vector3.zero)
                     rb.AddForceAtPosition(force, strutTop);

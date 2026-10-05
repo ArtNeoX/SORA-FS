@@ -86,6 +86,15 @@ namespace CirrusFS.Flight
         public float MousePitch { get; private set; }
         public bool Braking { get; private set; }
 
+        // Actuator-lagged control positions, -1..1: +pitch = nose up, +roll = right, +yaw = right.
+        public float PitchActuator => pitchSpring != null ? pitchSpring.Position : 0f;
+        public float RollActuator => rollSpring != null ? rollSpring.Position : 0f;
+        public float YawActuator => yawSpring != null ? yawSpring.Position : 0f;
+        public int FlapIndex => flapIndex;
+        public int AirbrakeIndex => airbrkIndex;
+        public int EngineCount => engines != null ? engines.Length : 0;
+        public float EngineThrust(int i) => engines != null && i >= 0 && i < engines.Length ? engines[i].current : 0f;
+
         /// Force-beam visualisation, toggled in play with M.
         public bool BeamsVisible
         {
