@@ -61,8 +61,9 @@ namespace CirrusFS.Flight
             }
         }
 
-        /// Build immutable per-station geometry from the surface list.
-        public static Station[] Build(FlightConfig config)
+        /// Build immutable per-station geometry from the surface list. origin is the ref point
+        /// in aircraft-local space; every rootOffset is measured from it.
+        public static Station[] Build(FlightConfig config, Vector3 origin = default)
         {
             var stations = new List<Station>();
 
@@ -104,7 +105,7 @@ namespace CirrusFS.Flight
 
                         float horiz = vertical ? yc : yc * Mathf.Cos(dih);
                         // +Z is forward, so sweepback carries the station aft.
-                        Vector3 pos = surf.rootOffset + s * yc + new Vector3(0f, 0f, -horiz * sweepT);
+                        Vector3 pos = origin + surf.rootOffset + s * yc + new Vector3(0f, 0f, -horiz * sweepT);
 
                         ControlRole role = ControlRole.None;
                         if (surf.control == ControlRole.Elevator || surf.control == ControlRole.Rudder)

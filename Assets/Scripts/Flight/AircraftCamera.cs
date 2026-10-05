@@ -25,7 +25,7 @@ namespace CirrusFS.Flight
         public Transform target;
         [Tooltip("Aim point in aircraft-local metres. Orbital view only.")]
         public Vector3 focusOffset = new Vector3(0f, 0.5f, -4.4f);
-        public float distance = 28f;
+        public float distance = 330f;
 
         [Header("Mode")]
         [Tooltip("View the camera starts in.")]

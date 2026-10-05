@@ -5,8 +5,9 @@ namespace CirrusFS.Flight
     /// Airbus A320ceo with CFM56-5B4 engines, in the same SI / +Z-forward aircraft frame as
     /// FlightConfig. Geometry is read off Assets/Aircraft/A320CEO/objects/a320ceo.fbx, which
     /// imports at 1/1.12 of real size (the Roblox stud factor), so every mesh coordinate here
-    /// is multiplied by 1.12. The frame origin is the FBX origin; place the model at the
-    /// aircraft root's local origin with scale 1.12 and it lines up with these numbers.
+    /// is multiplied by 1.12. Every position is measured from the controller's ref point, which
+    /// stands for the FBX origin: put the ref point where the model's origin sits (model at
+    /// scale 1.12) and the rig lines up with it.
     ///
     /// Reference data: span 34.10 m, wing area 122.6 m^2, 25 deg quarter-chord sweep,
     /// 5.1 deg dihedral, HT 31.0 m^2, VT 21.5 m^2, 2 x CFM56-5B4 at 120.1 kN (27,000 lbf),
@@ -180,7 +181,8 @@ namespace CirrusFS.Flight
                 gear.gears[i].wheel = old[i].wheel;
         }
 
-        /// Distance from the aircraft origin to the bottom of the tyres, for aircraft.json.
+        /// Distance from the ref point to the bottom of the tyres, for aircraft.json (equal to
+        /// gear_height_m while the ref point sits at the aircraft origin).
         public const float GearHeight = 3.19f;
     }
 }

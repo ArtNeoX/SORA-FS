@@ -4,7 +4,7 @@
   "manufacturer": "Cirrus",
   "variant": "G2+ Default",
   "icon": "icon.png",
-  "scene_object": "CirrusVision",
+  "scene_object": "A320CEO",
   "prefab_resource_path": "",
   "gear_height_m": 3.19,
   "spawn_clearance_m": 0.05,

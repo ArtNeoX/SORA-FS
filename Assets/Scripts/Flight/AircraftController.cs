@@ -17,6 +17,16 @@ namespace CirrusFS.Flight
 
         public FlightConfig config = new FlightConfig();
 
+        [Tooltip("Origin of every coordinate in the config and the landing gear: CoM, surfaces, " +
+                 "engines, drag points and gear legs. Move it to slide the whole physics rig " +
+                 "against the model, in edit or play mode. Only its position is used; " +
+                 "empty = the aircraft root.")]
+        public Transform refPoint;
+
+        /// Ref point in aircraft-local space. Config coordinates are offsets from it.
+        public Vector3 RefOffset =>
+            refPoint ? transform.InverseTransformPoint(refPoint.position) : Vector3.zero;
+
         [Serializable]
         public class ControlSurfaceVisual
         {
@@ -35,6 +45,7 @@ namespace CirrusFS.Flight
         Rigidbody rb;
         Station[] stations;
         EngineState[] engines;
+        Vector3 appliedRef;
 
         ActuatorSpring pitchSpring, rollSpring, yawSpring;
 
@@ -100,7 +111,6 @@ namespace CirrusFS.Flight
         {
             rb = GetComponent<Rigidbody>();
             rb.mass = config.massKg;
-            rb.centerOfMass = config.centerOfMass;
             rb.inertiaTensorRotation = Quaternion.identity;
             rb.inertiaTensor = config.inertiaTensor;
             rb.linearDamping = 0f;
@@ -109,7 +119,7 @@ namespace CirrusFS.Flight
             rb.interpolation = RigidbodyInterpolation.Interpolate;
             rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
-            stations = Aerodynamics.Build(config);
+            ApplyRefPoint();
 
             engines = new EngineState[config.engines.Length];
             for (int i = 0; i < engines.Length; i++)
@@ -141,6 +151,14 @@ namespace CirrusFS.Flight
 
             foreach (var v in controlVisuals)
                 if (v.hinge) v.rest = v.hinge.localRotation;
+        }
+
+        /// Re-anchors the CoM and the blade-element stations on the current ref point.
+        void ApplyRefPoint()
+        {
+            appliedRef = RefOffset;
+            rb.centerOfMass = appliedRef + config.centerOfMass;
+            stations = Aerodynamics.Build(config, appliedRef);
         }
 
         static float Max(float[] values)
@@ -202,6 +220,8 @@ namespace CirrusFS.Flight
         {
             float h = Mathf.Min(Time.fixedDeltaTime, config.dtMax);
             if (h <= 0f) return;
+
+            if ((RefOffset - appliedRef).sqrMagnitude > 1e-8f) ApplyRefPoint();
 
             throttle = Mathf.Clamp01(throttle + Axis(Key.E, Key.Q) * config.leverSlew * h);
 
@@ -276,7 +296,7 @@ namespace CirrusFS.Flight
                 e.current += (target - e.current) * Mathf.Clamp01(h * e.def.response);
                 Vector3 tv = e.dir * e.current;
                 forceLocal += tv;
-                torqueLocal += Vector3.Cross(e.def.pos - comLocal, tv);
+                torqueLocal += Vector3.Cross(appliedRef + e.def.pos - comLocal, tv);
                 thrust += e.current;
             }
             TotalThrust = thrust;
@@ -425,7 +445,8 @@ namespace CirrusFS.Flight
             for (int i = 0; i < config.dragPoints.Length; i++)
             {
                 DragPoint dp = config.dragPoints[i];
-                Vector3 pointVel = linLocal + Vector3.Cross(angLocal, dp.pos - comLocal);
+                Vector3 dpPos = appliedRef + dp.pos;
+                Vector3 pointVel = linLocal + Vector3.Cross(angLocal, dpPos - comLocal);
                 Vector3 rel = windLocal - pointVel;
                 float V = rel.magnitude;
                 if (V <= 0.1f)
@@ -437,7 +458,7 @@ namespace CirrusFS.Flight
                 float q = 0.5f * config.airDensity * V * V;
                 Vector3 force = rel / V * (q * dp.cd);
                 netF += force;
-                netT += Vector3.Cross(dp.pos - comLocal, force);
+                netT += Vector3.Cross(dpPos - comLocal, force);
                 totalDrag += q * dp.cd;
 
                 if (wantDisplay) dragPointForce[i] = force;
@@ -495,9 +516,36 @@ namespace CirrusFS.Flight
             }
             for (int i = 0; i < config.dragPoints.Length; i++)
             {
-                Vector3 o = transform.TransformPoint(config.dragPoints[i].pos);
+                Vector3 o = transform.TransformPoint(appliedRef + config.dragPoints[i].pos);
                 beams.Set(b++, o, o + rot * dragPointForce[i] * scale, ParasiticColor);
             }
+        }
+
+        // Physics rig as the config describes it, so the ref point can be lined up with the
+        // model in the editor: ref point (white), CoM (yellow), surface chords from leading to
+        // trailing edge (green), thrust lines (cyan), drag points (orange).
+        void OnDrawGizmosSelected()
+        {
+            if (config == null) return;
+            Vector3 r = RefOffset;
+            Gizmos.matrix = Matrix4x4.TRS(transform.position, transform.rotation, Vector3.one);
+
+            Gizmos.color = Color.white;
+            Gizmos.DrawWireCube(r, Vector3.one * 0.3f);
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawSphere(r + config.centerOfMass, 0.2f);
+
+            Gizmos.color = LiftColor;
+            foreach (var s in Aerodynamics.Build(config, r))
+                Gizmos.DrawLine(s.pos + s.f * (0.25f * s.chord), s.pos - s.f * (0.75f * s.chord));
+
+            Gizmos.color = Color.cyan;
+            foreach (var e in config.engines)
+                Gizmos.DrawLine(r + e.pos, r + e.pos - e.dir.normalized * 3f);
+
+            Gizmos.color = ParasiticColor;
+            foreach (var dp in config.dragPoints)
+                Gizmos.DrawWireSphere(r + dp.pos, 0.15f);
         }
     }
 }

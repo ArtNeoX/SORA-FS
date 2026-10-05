@@ -21,7 +21,7 @@ namespace CirrusFS.Flight
         public class Gear
         {
             public string name = "Gear";
-            [Tooltip("Wheel centre at rest, in aircraft-local metres.")]
+            [Tooltip("Wheel centre at rest, in metres from the controller's ref point.")]
             public Vector3 mountLocal;
             public float radius = 0.28f;
             public float stiffnessScale = 1f;
@@ -90,10 +90,11 @@ namespace CirrusFS.Flight
             float restLength = mountHeight + rideCompression;
             Vector3 com = rb.worldCenterOfMass;
             Vector3 upLocal = new Vector3(0f, mountHeight, 0f);
+            Vector3 refOffset = RefOffset;
 
             foreach (var gr in gears)
             {
-                Vector3 top = transform.TransformPoint(gr.mountLocal + upLocal);
+                Vector3 top = transform.TransformPoint(refOffset + gr.mountLocal + upLocal);
                 gr.px = top.x;
                 gr.pz = top.z;
             }
@@ -106,7 +107,7 @@ namespace CirrusFS.Flight
             for (int i = 0; i < gears.Length; i++)
             {
                 Gear gr = gears[i];
-                Vector3 strutTop = transform.TransformPoint(gr.mountLocal + upLocal);
+                Vector3 strutTop = transform.TransformPoint(refOffset + gr.mountLocal + upLocal);
                 float maxLen = restLength + gr.radius;
 
                 Vector3 force = Vector3.zero;
@@ -157,12 +158,37 @@ namespace CirrusFS.Flight
 
                 // Wheel telescopes to match live travel; airborne = full droop.
                 if (animateWheels && gr.wheel)
-                    gr.wheel.localPosition = gr.mountLocal + new Vector3(0f, mountHeight - suspLength, 0f);
+                    gr.wheel.localPosition = refOffset + gr.mountLocal + new Vector3(0f, mountHeight - suspLength, 0f);
 
                 // Rooted at the contact and drawn along the applied force; airborne legs
                 // collapse to a zero-length beam so nothing is rendered.
                 Vector3 tip = grounded ? contact + force * beamScale : contact;
                 beams.Set(i, contact, tip, GearColor);
+            }
+        }
+
+        // Gear legs share the flight model's ref point, so moving it carries them along.
+        Vector3 RefOffset
+        {
+            get
+            {
+                if (controller == null) controller = GetComponent<AircraftController>();
+                return controller != null ? controller.RefOffset : Vector3.zero;
+            }
+        }
+
+        // Wheels at rest (yellow) and strut tops (white), relative to the ref point.
+        void OnDrawGizmosSelected()
+        {
+            Vector3 r = RefOffset;
+            Gizmos.matrix = Matrix4x4.TRS(transform.position, transform.rotation, Vector3.one);
+            foreach (var gr in gears)
+            {
+                Vector3 c = r + gr.mountLocal;
+                Gizmos.color = GearColor;
+                Gizmos.DrawWireSphere(c, gr.radius);
+                Gizmos.color = Color.white;
+                Gizmos.DrawLine(c, c + new Vector3(0f, mountHeight, 0f));
             }
         }
 

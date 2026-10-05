@@ -181,7 +181,8 @@ as near while you are anywhere over it.
 
 - **`gear_height_m`** is the distance from the aircraft's origin to the bottom of the tyres, and
   the only thing stopping it spawning inside the runway. Read it off the flight config rather
-  than guessing: for the SF50 it is `mountLocal.y + radius` = `0.865 + 0.28` = `1.145`.
+  than guessing: it is `-(refPoint.y + mountLocal.y) + radius`, since gear legs are measured from
+  the controller's ref point. For the SF50 (ref point at the origin) that is `0.865 + 0.28` = `1.145`.
 - The prefab needs `Rigidbody`, `AircraftController` and `LandingGearSuspension` on its root.
 - `id` defaults to the folder name. Icons load from disk, so they need no Unity import settings.
 
