@@ -303,6 +303,40 @@ Transform:
   m_Children: []
   m_Father: {fileID: 719461574}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &120110123 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+  m_PrefabInstance: {fileID: 705487850}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &120110125
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 120110123}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 24c3bb2acbc63374297dbcf589e2ceb9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.SceneryRegion
+  kind: 1
+  sceneryId: kanto_region
+  useAnchors: 1
+  useSolvedScale: 1
+  modelUnitsPerMetre: 1
+  modelNorthOffsetDeg: 0
+  markerHeadingOffsetDeg: 0
+  markerRunwayWidthM: 45
+  alwaysLoaded: 1
+  renderDistanceM: 0
+  alignRunwaySurfaceToZero: 1
+  probeHeight: 3000
+  probeDepth: 1000
+  groundMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  seaLevelLocalY: 0
 --- !u!1 &141063682
 GameObject:
   m_ObjectHideFlags: 0
@@ -3723,6 +3757,72 @@ Transform:
   - {fileID: 169406504239473539}
   m_Father: {fileID: 195170252}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &705487850
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_Name
+      value: kanto_terrain
+      objectReference: {fileID: 0}
+    - target: {fileID: 919132149155446097, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects:
+    - {fileID: 65702495048144492, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+    - {fileID: -8700617353114198275, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+    m_AddedGameObjects: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 120110125}
+  m_SourcePrefab: {fileID: 100100000, guid: 9b94d374acdf23842999264f92f2180f, type: 3}
 --- !u!1001 &719461569
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -10410,3 +10510,4 @@ SceneRoots:
   - {fileID: 198809974957463538}
   - {fileID: 1856636022}
   - {fileID: 445016767125014314}
+  - {fileID: 705487850}

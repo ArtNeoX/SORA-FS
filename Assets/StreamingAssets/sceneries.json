@@ -32,6 +32,13 @@
       "scene_object": "japan_global",
       "always_loaded": true,
       "render_distance_m": 0
+    },
+        {
+      "id": "kanto_region",
+      "display_name": "Kanto",
+      "scene_object": "kanto_terrain",
+      "always_loaded": true,
+      "render_distance_m": 0
     }
   ]
 }
