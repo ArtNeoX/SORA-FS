@@ -109,9 +109,9 @@ MonoBehaviour:
     m_Value: 400
   enableVolumetricFog:
     m_OverrideState: 0
-    m_Value: 1
+    m_Value: 0
   albedo:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: {r: 1, g: 1, b: 1, a: 1}
   globalLightProbeDimmer:
     m_OverrideState: 0
@@ -1285,7 +1285,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7e9e4ed5a6f56fb4ebd693e39684f36f, type: 3}
   m_Name: VolumetricClouds
   m_EditorClassIdentifier: Unity.RenderPipelines.HighDefinition.Runtime::UnityEngine.Rendering.HighDefinition.VolumetricClouds
-  active: 0
+  active: 1
   m_Version: 3
   localClouds:
     m_OverrideState: 0
@@ -1316,10 +1316,10 @@ MonoBehaviour:
     m_Value: {x: 0, y: 0}
   bottomAltitude:
     m_OverrideState: 1
-    m_Value: 40
+    m_Value: 4000
   altitudeRange:
     m_OverrideState: 1
-    m_Value: 8000
+    m_Value: 9000
   fadeInMode:
     m_OverrideState: 0
     m_Value: 0
@@ -1395,16 +1395,7 @@ MonoBehaviour:
         inWeight: 0
         outWeight: 0
       - serializedVersion: 3
-        time: 0.05
-        value: 1
-        inSlope: 0
-        outSlope: 0
-        tangentMode: 0
-        weightedMode: 0
-        inWeight: 0
-        outWeight: 0
-      - serializedVersion: 3
-        time: 0.75
+        time: 0.15
         value: 1
         inSlope: 0
         outSlope: 0
@@ -1414,7 +1405,7 @@ MonoBehaviour:
         outWeight: 0
       - serializedVersion: 3
         time: 1
-        value: 0
+        value: 0.1
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -1475,7 +1466,7 @@ MonoBehaviour:
         outWeight: 0
       - serializedVersion: 3
         time: 0.25
-        value: 0.5
+        value: 0.4
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -1505,22 +1496,22 @@ MonoBehaviour:
     m_Value: 0.5
   densityMultiplier:
     m_OverrideState: 1
-    m_Value: 0.274
+    m_Value: 0.046
   shapeFactor:
     m_OverrideState: 1
-    m_Value: 0.841
+    m_Value: 0.9
   shapeScale:
     m_OverrideState: 1
-    m_Value: 2
+    m_Value: 1
   shapeOffset:
     m_OverrideState: 0
     m_Value: {x: 0, y: 0, z: 0}
   erosionFactor:
     m_OverrideState: 1
-    m_Value: 0.567
+    m_Value: 0.8
   erosionScale:
     m_OverrideState: 1
-    m_Value: 300
+    m_Value: 107
   erosionNoiseType:
     m_OverrideState: 1
     m_Value: 1
@@ -2554,10 +2545,10 @@ MonoBehaviour:
     m_OverrideState: 1
     m_Value: 0
   exposure:
-    m_OverrideState: 1
+    m_OverrideState: 0
     m_Value: 1
   multiplier:
-    m_OverrideState: 0
+    m_OverrideState: 1
     m_Value: 1
   upperHemisphereLuxValue:
     m_OverrideState: 0
@@ -2616,10 +2607,10 @@ MonoBehaviour:
     m_Value: 55261.973
   aerosolDensity:
     m_OverrideState: 1
-    m_Value: 0.038
+    m_Value: 0.077
   aerosolTint:
-    m_OverrideState: 0
-    m_Value: {r: 0.9, g: 0.9, b: 0.9, a: 1}
+    m_OverrideState: 1
+    m_Value: {r: 1, g: 1, b: 1, a: 1}
   aerosolMaximumAltitude:
     m_OverrideState: 0
     m_Value: 8289.296
@@ -2637,7 +2628,7 @@ MonoBehaviour:
     m_Value: 20000
   groundTint:
     m_OverrideState: 1
-    m_Value: {r: 0.03630474, g: 0.05524762, b: 0.078969955, a: 1}
+    m_Value: {r: 0.052693997, g: 0.0882639, b: 0.13686998, a: 1}
   groundColorTexture:
     m_OverrideState: 0
     m_Value: {fileID: 0}
