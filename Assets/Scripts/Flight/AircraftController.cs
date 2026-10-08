@@ -14,6 +14,8 @@ namespace CirrusFS.Flight
     public class AircraftController : MonoBehaviour
     {
         const float MetresPerSecondToKnots = 1.94384f;
+        // Space kept above the mouse box for the HUD's label, px.
+        const float BoxLabelRoom = 22f;
 
         public FlightConfig config = new FlightConfig();
 
@@ -53,6 +55,10 @@ namespace CirrusFS.Flight
         int flapIndex, airbrkIndex;
         float flapPos, airbrkPos;
         float maxFlap, maxAirbrk;
+
+        // Mouse box centre as a screen fraction, and where in the box the drag grabbed it.
+        Vector2 boxAnchor = new Vector2(0.5f, 0.6f);
+        Vector2 boxGrab;
 
         // Display data captured on the final substep, in aircraft-local space.
         Vector3[] beamOrigin, beamLift, beamDrag, dragPointForce;
@@ -107,18 +113,28 @@ namespace CirrusFS.Flight
         }
 
         /// Mouse-flight box in screen space, bottom-left origin (matches Mouse.current.position).
+        /// Its centre is kept as a screen fraction so it holds its place across resolutions,
+        /// and it is clamped fully on screen with room above for the HUD label.
         public Rect MouseBox
         {
             get
             {
                 float sz = config.mouseBoxSize;
-                return new Rect((Screen.width - sz) * 0.5f, 20f, sz, sz);
+                float x = Mathf.Clamp(boxAnchor.x * Screen.width - sz * 0.5f, 0f, Mathf.Max(0f, Screen.width - sz));
+                float y = Mathf.Clamp(boxAnchor.y * Screen.height - sz * 0.5f, 0f,
+                    Mathf.Max(0f, Screen.height - sz - BoxLabelRoom));
+                return new Rect(x, y, sz, sz);
             }
         }
+
+        /// True while the box is being dragged with the right mouse button. The camera leaves
+        /// that button alone meanwhile, so the drag does not also turn the head.
+        public bool MouseBoxDragging { get; private set; }
 
         void Awake()
         {
             rb = GetComponent<Rigidbody>();
+            boxAnchor = config.mouseBoxAnchor;
             rb.mass = config.massKg;
             rb.inertiaTensorRotation = Quaternion.identity;
             rb.inertiaTensor = config.inertiaTensor;
@@ -213,6 +229,26 @@ namespace CirrusFS.Flight
 
             Rect box = MouseBox;
             Vector2 m = mouse.position.ReadValue();
+
+            // Right-drag moves the box. The stick holds its last command while it moves.
+            if (mouse.rightButton.wasPressedThisFrame && box.Contains(m))
+            {
+                MouseBoxDragging = true;
+                boxGrab = m - box.center;
+            }
+            if (MouseBoxDragging)
+            {
+                if (mouse.rightButton.isPressed && Screen.width > 0 && Screen.height > 0)
+                {
+                    Vector2 c = m - boxGrab;
+                    boxAnchor = new Vector2(c.x / Screen.width, c.y / Screen.height);
+                    // Re-anchor on the clamped box, so dragging back from an edge responds at once.
+                    Rect placed = MouseBox;
+                    boxAnchor = new Vector2(placed.center.x / Screen.width, placed.center.y / Screen.height);
+                    return;
+                }
+                MouseBoxDragging = false;
+            }
 
             if (mouse.leftButton.wasPressedThisFrame && box.Contains(m))
                 MouseMode = !MouseMode;

@@ -135,6 +135,9 @@ namespace CirrusFS.Flight
         public float beamWidth = 0.06f;
         public bool showHud = true;
         public float mouseBoxSize = 200f;
+        [Tooltip("Where the mouse box centre starts, as a fraction of the screen (0,0 = bottom-left). " +
+                 "Drag the box with the right mouse button to move it.")]
+        public Vector2 mouseBoxAnchor = new Vector2(0.5f, 0.6f);
 
         [Header("Lifting surfaces")]
         public Surface[] surfaces =

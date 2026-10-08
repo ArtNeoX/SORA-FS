@@ -102,6 +102,9 @@ namespace CirrusFS.Flight
         Transform resolvedFor;
         bool warnedMissingAnchor;
 
+        AircraftController targetController;
+        Transform controllerFor;
+
         void Awake()
         {
             cam = GetComponent<Camera>();
@@ -143,6 +146,17 @@ namespace CirrusFS.Flight
 
             if (cam != null)
                 cam.fieldOfView = mode == ViewMode.Cockpit ? cockpitTargetFov : orbitalFov;
+        }
+
+        /// The right button belongs to the mouse box while it is being dragged.
+        bool MouseBoxDragging()
+        {
+            if (controllerFor != target)
+            {
+                controllerFor = target;
+                targetController = target ? target.GetComponent<AircraftController>() : null;
+            }
+            return targetController && targetController.MouseBoxDragging;
         }
 
         void ReadToggle()
@@ -195,9 +209,14 @@ namespace CirrusFS.Flight
         void UpdateCockpit()
         {
             var mouse = Mouse.current;
-            bool looking = mouse != null && mouse.rightButton.isPressed;
+            bool dragging = MouseBoxDragging();
+            bool looking = mouse != null && mouse.rightButton.isPressed && !dragging;
 
-            if (looking)
+            if (dragging)
+            {
+                // Hold the head where it is while the mouse box moves.
+            }
+            else if (looking)
             {
                 Vector2 delta = mouse.delta.ReadValue() * lookSensitivity;
                 headYawTarget = Mathf.Clamp(headYawTarget + delta.x, -maxLookYaw, maxLookYaw);
@@ -235,7 +254,7 @@ namespace CirrusFS.Flight
             }
 
             var mouse = Mouse.current;
-            if (mouse != null && mouse.rightButton.isPressed)
+            if (mouse != null && mouse.rightButton.isPressed && !MouseBoxDragging())
             {
                 Vector2 delta = mouse.delta.ReadValue() * orbitSensitivity;
                 orbitYaw += delta.x;

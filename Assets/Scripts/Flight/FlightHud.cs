@@ -108,7 +108,8 @@ namespace CirrusFS.Flight
                 screenBox.width, screenBox.height);
 
             Fill(box, BoxFill);
-            Outline(box, aircraft.MouseMode ? Readout : Crosshair, 2f);
+            Outline(box, aircraft.MouseMode || aircraft.MouseBoxDragging ? Readout : Crosshair,
+                aircraft.MouseBoxDragging ? 3f : 2f);
 
             float inset = 10f;
             Fill(new Rect(box.x + inset, box.center.y, box.width - inset * 2f, 1f), Crosshair);
@@ -125,8 +126,11 @@ namespace CirrusFS.Flight
                 }
             }
 
-            GUI.Label(new Rect(box.x, box.y - 20f, box.width, 18f),
-                aircraft.MouseMode ? "MOUSE FLIGHT: ON (click)" : "MOUSE FLIGHT: OFF (click)", labelStyle);
+            // Wider than the box so the longer text never wraps on a small box.
+            GUI.Label(new Rect(box.center.x - 160f, box.y - 20f, 320f, 18f),
+                aircraft.MouseBoxDragging ? "MOVING (release right button)"
+                : aircraft.MouseMode ? "MOUSE FLIGHT: ON (click, right-drag to move)"
+                : "MOUSE FLIGHT: OFF (click, right-drag to move)", labelStyle);
         }
     }
 }
