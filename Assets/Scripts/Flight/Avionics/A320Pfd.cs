@@ -32,7 +32,7 @@ namespace CirrusFS.Flight.Avionics
         const float HdgL = 165f, HdgR = 550f, HdgTop = 765f, HdgBot = 830f, HdgPx = 8f;
 
         static readonly Color Sky = Rgb(26, 153, 240);
-        static readonly Color Earth = Rgb(150, 75, 18);
+        static readonly Color Earth = Rgb(150, 90, 0);
         static readonly Color Scale = Rgb(118, 118, 118);
         static readonly Color White = Color.white;
         static readonly Color Green = Rgb(30, 240, 40);
