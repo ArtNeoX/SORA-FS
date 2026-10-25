@@ -438,7 +438,7 @@ MonoBehaviour:
     - 40
     flapResponse: 0.25
     flapClFactor: 2.3
-    flapCdFactor: 5.5
+    flapCdFactor: 10.78
     flapWingAreaFactor: 1.12
     flapCpShift: 0.4
     airbrkAngles:
@@ -586,22 +586,22 @@ MonoBehaviour:
       cdFlat: 0
     dragPoints:
     - pos: {x: 0, y: 0.4, z: -0.5}
-      cd: 1.05
+      cd: 1.911
       isGear: 0
     - pos: {x: -5.73, y: -1.34, z: 5.96}
-      cd: 0.16
+      cd: 0.2912
       isGear: 0
     - pos: {x: 5.73, y: -1.34, z: 5.96}
-      cd: 0.16
+      cd: 0.2912
       isGear: 0
     - pos: {x: -3.77, y: -2, z: 0.96}
-      cd: 0.8
+      cd: 1.12
       isGear: 1
     - pos: {x: 3.77, y: -2, z: 0.96}
-      cd: 0.8
+      cd: 1.12
       isGear: 1
     - pos: {x: 0, y: -2.2, z: 13.25}
-      cd: 0.48
+      cd: 0.672
       isGear: 1
     engines:
     - name: E1
@@ -2952,13 +2952,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 499851628}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.35355335, y: 0.61237246, z: -0.61237246, w: 0.35355335}
+  m_LocalRotation: {x: 0.10821977, y: 0.84549725, z: -0.18744218, w: 0.48814797}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 90, y: 120, z: 0}
+  m_LocalEulerAnglesHint: {x: 25, y: 120, z: 0}
 --- !u!114 &499851631
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6648,8 +6648,8 @@ MonoBehaviour:
       serializedVersion: 2
       m_Curve:
       - serializedVersion: 3
-        time: -0.16407776
-        value: 1.989151
+        time: -0.3286972
+        value: 4.025345
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -6708,8 +6708,8 @@ MonoBehaviour:
         inWeight: 0
         outWeight: 0
       - serializedVersion: 3
-        time: 50
-        value: 2.5296035
+        time: 50.54669
+        value: 5.0500503
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -6768,8 +6768,8 @@ MonoBehaviour:
         inWeight: 0
         outWeight: 0
       - serializedVersion: 3
-        time: 100.28029
-        value: 3.0253584
+        time: 100.46141
+        value: 6.0429363
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -6842,7 +6842,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0.36, y: 1}
-  m_AnchoredPosition: {x: 24, y: -3.000061}
+  m_AnchoredPosition: {x: 24, y: -3.0000916}
   m_SizeDelta: {x: -72, y: -214}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1419705028
@@ -7440,7 +7440,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.36, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -24, y: -3.000061}
+  m_AnchoredPosition: {x: -24, y: -3.0000916}
   m_SizeDelta: {x: -72, y: -214}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1465177651
@@ -9122,15 +9122,15 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 461f9f3b1fcdd744e8f9e8003862b23e, type: 3}
       propertyPath: m_LocalScale.x
-      value: 1
+      value: 0.9999
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 461f9f3b1fcdd744e8f9e8003862b23e, type: 3}
       propertyPath: m_LocalScale.y
-      value: 1
+      value: 0.9999
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 461f9f3b1fcdd744e8f9e8003862b23e, type: 3}
       propertyPath: m_LocalScale.z
-      value: 1
+      value: 0.9999
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 461f9f3b1fcdd744e8f9e8003862b23e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -10329,7 +10329,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 8700039881513010735}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -11190,7 +11190,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4682787682084720568}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -11367,7 +11367,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 3262955816728855678}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
