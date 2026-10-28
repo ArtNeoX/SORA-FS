@@ -9,7 +9,7 @@ namespace CirrusFS.Sim
     ///   StreamingAssets/Aircraft/CirrusVision/aircraft.json
     ///   StreamingAssets/Aircraft/CirrusVision/icon.png
     ///
-    /// Field names are the JSON wire format (see AirportData for why they are snake_case).
+    /// Field names are the JSON wire format, snake_case to match the files on disk.
     [Serializable]
     public class AircraftData
     {

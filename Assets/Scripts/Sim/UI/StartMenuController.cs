@@ -1,20 +1,18 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using CirrusFS.Geo;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace CirrusFS.Sim
 {
-    /// The two selection panels and the Fly button.
+    /// The aircraft list, the start-position fields and the Fly button.
     ///
-    /// Owns nothing but the menu: it loads the catalogues, fills the two ScrollRects from a
-    /// pool of row prefabs, tracks one selection in each, and raises FlyRequested. What happens
-    /// on Fly is FlightSessionController's business.
-    ///
-    /// Rows are pooled rather than destroyed and rebuilt, because an airport list is the kind
-    /// of thing that goes from four entries to four thousand the moment a real scenery library
-    /// is plugged in.
+    /// Owns nothing but the menu: it loads the aircraft catalogue, fills the ScrollRect from a
+    /// pool of row prefabs, reads a lat/lon/altitude/heading from the start panel, and raises
+    /// FlyRequested. What happens on Fly is FlightSessionController's business.
     [DisallowMultipleComponent]
     public class StartMenuController : MonoBehaviour
     {
@@ -25,68 +23,61 @@ namespace CirrusFS.Sim
         public SelectionListItem aircraftItemPrefab;
         public TMP_InputField aircraftSearch;
 
-        [Header("Airport panel")]
-        public ScrollRect airportScroll;
-        public RectTransform airportContent;
-        public SelectionListItem airportItemPrefab;
-        public TMP_InputField airportSearch;
+        [Header("Start position panel")]
+        public TMP_InputField latitudeInput;
+        public TMP_InputField longitudeInput;
+        [Tooltip("Height above the WGS84 ellipsoid, metres.")]
+        public TMP_InputField altitudeInput;
+        public TMP_InputField headingInput;
+
+        [Tooltip("Values the fields start with.")]
+        public SpawnPoint defaultSpawn = SpawnPoint.Default;
 
         [Header("Controls")]
         public Button flyButton;
-        public Button customizeButton;
-        public AirportCustomizePanel customizePanel;
         public TMP_Text selectionSummary;
         public TMP_Text statusText;
 
         [Header("Behaviour")]
-        [Tooltip("Select the first aircraft and airport automatically once the lists load.")]
+        [Tooltip("Select the first aircraft automatically once the list loads.")]
         public bool autoSelectFirst = true;
 
-        [Tooltip("Rebuild the lists every time the menu is shown, so edits to the JSON are " +
+        [Tooltip("Rebuild the list every time the menu is shown, so edits to the JSON are " +
                  "picked up without restarting play mode.")]
         public bool reloadOnEnable = true;
 
         /// Raised when Fly is clicked with a valid selection.
-        public event Action<AircraftEntry, AirportRef> FlyRequested;
+        public event Action<AircraftEntry, SpawnPoint> FlyRequested;
 
         public AircraftEntry SelectedAircraft { get; private set; }
 
-        public AirportRef SelectedAirport { get; private set; }
-
-        /// The loaded scenery config, after the models have filled in their starts.
-        public SceneryDatabase Database => sceneries;
-
         readonly List<SelectionListItem> aircraftItems = new List<SelectionListItem>();
-        readonly List<SelectionListItem> airportItems = new List<SelectionListItem>();
-
         List<AircraftEntry> aircraft = new List<AircraftEntry>();
-        SceneryDatabase sceneries = new SceneryDatabase();
 
-        // Rows past these counts are pooled leftovers holding stale payloads, and are never
-        // shown or searched.
         int boundAircraftCount;
-        int boundAirportCount;
         bool built;
+        bool fieldsFilled;
 
         void Awake()
         {
             if (aircraftContent == null && aircraftScroll != null) aircraftContent = aircraftScroll.content;
-            if (airportContent == null && airportScroll != null) airportContent = airportScroll.content;
 
             if (flyButton != null) flyButton.onClick.AddListener(HandleFlyClicked);
-            if (customizeButton != null) customizeButton.onClick.AddListener(HandleCustomizeClicked);
-            if (customizePanel != null) customizePanel.Confirmed += HandleStartConfirmed;
             if (aircraftSearch != null) aircraftSearch.onValueChanged.AddListener(_ => ApplyAircraftFilter());
-            if (airportSearch != null) airportSearch.onValueChanged.AddListener(_ => ApplyAirportFilter());
 
+            foreach (TMP_InputField field in SpawnFields())
+            {
+                field.contentType = TMP_InputField.ContentType.DecimalNumber;
+                field.onValueChanged.AddListener(_ => UpdateFlyButton());
+            }
+
+            FillSpawnFields(defaultSpawn);
             UpdateFlyButton();
         }
 
         void OnDestroy()
         {
             if (flyButton != null) flyButton.onClick.RemoveListener(HandleFlyClicked);
-            if (customizeButton != null) customizeButton.onClick.RemoveListener(HandleCustomizeClicked);
-            if (customizePanel != null) customizePanel.Confirmed -= HandleStartConfirmed;
         }
 
         void OnEnable()
@@ -94,53 +85,32 @@ namespace CirrusFS.Sim
             if (!built || reloadOnEnable) Rebuild();
         }
 
+        IEnumerable<TMP_InputField> SpawnFields()
+        {
+            if (latitudeInput != null) yield return latitudeInput;
+            if (longitudeInput != null) yield return longitudeInput;
+            if (altitudeInput != null) yield return altitudeInput;
+            if (headingInput != null) yield return headingInput;
+        }
+
         // ---- building ------------------------------------------------------------
 
-        /// Reloads both catalogues from disk and refills the lists, keeping the current
+        /// Reloads the aircraft catalogue from disk and refills the list, keeping the current
         /// selection if it still exists.
         public void Rebuild()
         {
             string previousAircraftId = SelectedAircraft?.Id;
-            string previousAirportIcao = SelectedAirport.IsValid ? SelectedAirport.Airport.icao : null;
-            string previousStartId = SelectedAirport.IsValid ? SelectedAirport.Start.id : null;
 
             aircraft = AircraftCatalog.LoadAll();
-            sceneries = SceneryCatalog.Load(out string sceneryError);
-
-            // The models get the final say on where you can start. This has to happen before the
-            // lists are built, because the customize map draws the starts it finds here.
-            SceneryStartResolver.Apply(sceneries);
-
             BuildAircraftList();
-            BuildAirportList();
 
             SelectedAircraft = null;
-            SelectedAirport = default;
-
             if (previousAircraftId != null) SelectAircraftById(previousAircraftId);
-
-            if (previousAirportIcao != null && SelectAirportByIcao(previousAirportIcao))
-            {
-                // Keep the customized start across a reload, not just the airport.
-                StartData sameStart = SelectedAirport.Airport.FindStart(previousStartId);
-                if (sameStart != null) SelectAirport(SelectedAirport.WithStart(sameStart));
-            }
-
-            if (autoSelectFirst)
-            {
-                if (SelectedAircraft == null && aircraft.Count > 0) SelectAircraft(aircraft[0]);
-
-                if (!SelectedAirport.IsValid)
-                {
-                    List<AirportRef> all = sceneries.SelectableAirports();
-                    if (all.Count > 0) SelectAirport(all[0]);
-                }
-            }
+            if (autoSelectFirst && SelectedAircraft == null && aircraft.Count > 0) SelectAircraft(aircraft[0]);
 
             RefreshSelectionVisuals();
             ApplyAircraftFilter();
-            ApplyAirportFilter();
-            ReportStatus(sceneryError);
+            ReportStatus();
 
             built = true;
         }
@@ -154,7 +124,12 @@ namespace CirrusFS.Sim
                 return;
             }
 
-            EnsurePool(aircraftItems, aircraftItemPrefab, aircraftContent, aircraft.Count);
+            while (aircraftItems.Count < aircraft.Count)
+            {
+                SelectionListItem item = Instantiate(aircraftItemPrefab, aircraftContent);
+                item.gameObject.name = $"{aircraftItemPrefab.name}_{aircraftItems.Count:D4}";
+                aircraftItems.Add(item);
+            }
 
             for (int i = 0; i < aircraft.Count; i++)
             {
@@ -171,69 +146,7 @@ namespace CirrusFS.Sim
             }
 
             boundAircraftCount = aircraft.Count;
-            HideSurplus(aircraftItems, boundAircraftCount);
-        }
-
-        void BuildAirportList()
-        {
-            if (airportItemPrefab == null || airportContent == null)
-            {
-                Debug.LogError("[StartMenu] Airport panel is not wired up: needs an item prefab and a " +
-                               "content transform.");
-                return;
-            }
-
-            // One row per airport. Which runway end or stand to start from is chosen in the
-            // customize panel, so a field with two modelled ends is still a single entry here.
-            List<AirportRef> airports = sceneries.SelectableAirports();
-
-            // Name first, then ICAO: List.Sort is unstable, so two fields sharing a name would
-            // otherwise swap places between rebuilds.
-            airports.Sort((a, b) =>
-            {
-                int byName = string.Compare(a.Airport.DisplayName, b.Airport.DisplayName,
-                                            StringComparison.OrdinalIgnoreCase);
-                return byName != 0
-                    ? byName
-                    : string.Compare(a.Airport.Icao, b.Airport.Icao, StringComparison.OrdinalIgnoreCase);
-            });
-
-            EnsurePool(airportItems, airportItemPrefab, airportContent, airports.Count);
-
-            for (int i = 0; i < airports.Count; i++)
-            {
-                AirportRef reference = airports[i];
-                SelectionListItem item = airportItems[i];
-
-                item.SetVisible(true);
-
-                // Name and ICAO only. `features` still goes into the search key below, it just
-                // has no column of its own.
-                item.Bind(new SelectionListItem.Content(reference.Airport.DisplayName,
-                                                        reference.Airport.Icao,
-                                                        null),
-                          reference,
-                          HandleAirportClicked);
-                item.AppendSearchKey(reference.Airport.features);
-            }
-
-            boundAirportCount = airports.Count;
-            HideSurplus(airportItems, boundAirportCount);
-        }
-
-        void EnsurePool(List<SelectionListItem> pool, SelectionListItem prefab, RectTransform parent, int needed)
-        {
-            while (pool.Count < needed)
-            {
-                SelectionListItem item = Instantiate(prefab, parent);
-                item.gameObject.name = $"{prefab.name}_{pool.Count:D4}";
-                pool.Add(item);
-            }
-        }
-
-        static void HideSurplus(List<SelectionListItem> pool, int used)
-        {
-            for (int i = used; i < pool.Count; i++) pool[i].SetVisible(false);
+            for (int i = boundAircraftCount; i < aircraftItems.Count; i++) aircraftItems[i].SetVisible(false);
         }
 
         // ---- selection -----------------------------------------------------------
@@ -244,21 +157,9 @@ namespace CirrusFS.Sim
             RefreshSelectionVisuals();
         }
 
-        void HandleAirportClicked(SelectionListItem item)
-        {
-            SelectAirport(item.PayloadAs<AirportRef>());
-            RefreshSelectionVisuals();
-        }
-
         public void SelectAircraft(AircraftEntry entry)
         {
             SelectedAircraft = entry;
-            UpdateFlyButton();
-        }
-
-        public void SelectAirport(AirportRef reference)
-        {
-            SelectedAirport = reference;
             UpdateFlyButton();
         }
 
@@ -276,15 +177,6 @@ namespace CirrusFS.Sim
             return false;
         }
 
-        public bool SelectAirportByIcao(string icao)
-        {
-            AirportRef found = sceneries.FindSelectableAirport(icao);
-            if (!found.IsValid) return false;
-
-            SelectAirport(found);
-            return true;
-        }
-
         void RefreshSelectionVisuals()
         {
             for (int i = 0; i < boundAircraftCount; i++)
@@ -292,76 +184,90 @@ namespace CirrusFS.Sim
                 aircraftItems[i].SetSelected(ReferenceEquals(aircraftItems[i].Payload, SelectedAircraft));
             }
 
-            for (int i = 0; i < boundAirportCount; i++)
-            {
-                AirportRef reference = airportItems[i].PayloadAs<AirportRef>();
-                airportItems[i].SetSelected(SelectedAirport.SameAirport(reference));
-            }
-
             UpdateSummary();
         }
 
-        // ---- filtering -----------------------------------------------------------
-
-        void ApplyAircraftFilter() => Filter(aircraftItems, aircraftSearch, boundAircraftCount);
-
-        void ApplyAirportFilter() => Filter(airportItems, airportSearch, boundAirportCount);
-
-        static void Filter(List<SelectionListItem> pool, TMP_InputField search, int boundCount)
+        void ApplyAircraftFilter()
         {
-            string term = search != null ? search.text.Trim().ToLowerInvariant() : string.Empty;
+            string term = aircraftSearch != null ? aircraftSearch.text.Trim().ToLowerInvariant() : string.Empty;
 
-            for (int i = 0; i < pool.Count; i++)
+            for (int i = 0; i < aircraftItems.Count; i++)
             {
-                bool bound = i < boundCount;
-                pool[i].SetVisible(bound && pool[i].Matches(term));
+                bool bound = i < boundAircraftCount;
+                aircraftItems[i].SetVisible(bound && aircraftItems[i].Matches(term));
             }
+        }
+
+        // ---- start position ------------------------------------------------------
+
+        public void FillSpawnFields(SpawnPoint spawn)
+        {
+            SetField(latitudeInput, spawn.latitude, "F5");
+            SetField(longitudeInput, spawn.longitude, "F5");
+            SetField(altitudeInput, spawn.altitude, "F0");
+            SetField(headingInput, spawn.heading, "F0");
+            fieldsFilled = true;
+        }
+
+        static void SetField(TMP_InputField field, double value, string format)
+        {
+            if (field != null) field.SetTextWithoutNotify(value.ToString(format, CultureInfo.InvariantCulture));
+        }
+
+        /// The spawn the fields describe, or false with a reason if one of them does not parse
+        /// or is out of range. A field that is not wired up keeps the default.
+        public bool TryReadSpawn(out SpawnPoint spawn, out string problem)
+        {
+            spawn = defaultSpawn;
+            problem = null;
+            if (!fieldsFilled) return true;
+
+            if (!TryField(latitudeInput, ref spawn.latitude, "latitude", ref problem)) return false;
+            if (!TryField(longitudeInput, ref spawn.longitude, "longitude", ref problem)) return false;
+            if (!TryField(altitudeInput, ref spawn.altitude, "altitude", ref problem)) return false;
+            if (!TryField(headingInput, ref spawn.heading, "heading", ref problem)) return false;
+
+            if (!GeoMath.IsValidLatitude(spawn.latitude)) { problem = "Latitude must be -90 to 90."; return false; }
+            if (!GeoMath.IsValidLongitude(spawn.longitude)) { problem = "Longitude must be -180 to 180."; return false; }
+            if (spawn.altitude < -500.0 || spawn.altitude > 5.0e7) { problem = "Altitude is out of range."; return false; }
+
+            spawn.heading = GeoMath.WrapHeading(spawn.heading);
+            return true;
+        }
+
+        static bool TryField(TMP_InputField field, ref double value, string name, ref string problem)
+        {
+            if (field == null) return true;
+
+            string text = field.text.Trim().Replace(',', '.');
+            if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+            {
+                value = parsed;
+                return true;
+            }
+
+            problem = $"Enter a number for {name}.";
+            return false;
         }
 
         // ---- fly -----------------------------------------------------------------
 
         void UpdateFlyButton()
         {
-            if (flyButton != null)
-            {
-                flyButton.interactable = SelectedAircraft != null && SelectedAirport.IsValid;
-            }
+            bool spawnOk = TryReadSpawn(out _, out string problem);
 
-            // Customize needs an airport but not an aircraft: picking a gate before picking
-            // what to sit on it is a perfectly normal order.
-            if (customizeButton != null) customizeButton.interactable = SelectedAirport.IsValid;
+            if (flyButton != null) flyButton.interactable = SelectedAircraft != null && spawnOk;
 
-            UpdateSummary();
+            UpdateSummary(problem);
         }
 
-        void HandleCustomizeClicked()
-        {
-            if (customizePanel == null)
-            {
-                Debug.LogWarning("[StartMenu] No customize panel assigned.");
-                return;
-            }
-
-            if (!SelectedAirport.IsValid) return;
-
-            customizePanel.Open(SelectedAirport);
-        }
-
-        void HandleStartConfirmed(AirportRef reference)
-        {
-            if (!reference.IsValid) return;
-
-            SelectAirport(reference);
-            RefreshSelectionVisuals();
-        }
-
-        void UpdateSummary()
+        void UpdateSummary(string problem = null)
         {
             if (selectionSummary == null) return;
 
-            if (SelectedAircraft == null && !SelectedAirport.IsValid)
+            if (problem != null)
             {
-                selectionSummary.text = "Select an aircraft and a departure airport.";
+                selectionSummary.text = problem;
                 return;
             }
 
@@ -369,48 +275,31 @@ namespace CirrusFS.Sim
                 ? SelectedAircraft.Data.DisplayName
                 : "<select an aircraft>";
 
-            string airportPart = SelectedAirport.IsValid
-                ? $"{SelectedAirport.Airport.Icao} {SelectedAirport.Airport.DisplayName} - " +
-                  $"{SelectedAirport.Start.Label}"
-                : "<select an airport>";
-
-            selectionSummary.text = $"{aircraftPart}   |   {airportPart}";
+            TryReadSpawn(out SpawnPoint spawn, out _);
+            selectionSummary.text = $"{aircraftPart}   |   {GeoMath.FormatDms(spawn.latitude, true)} " +
+                                    $"{GeoMath.FormatDms(spawn.longitude, false)}, {spawn.altitude:F0} m, " +
+                                    $"heading {spawn.heading:F0}";
         }
 
         void HandleFlyClicked()
         {
-            if (SelectedAircraft == null || !SelectedAirport.IsValid)
+            if (SelectedAircraft == null || !TryReadSpawn(out SpawnPoint spawn, out string problem))
             {
-                // The button should not be interactable here; this only fires if something
-                // drives it directly.
                 Debug.LogWarning("[StartMenu] Fly clicked without a complete selection.");
                 return;
             }
 
-            FlyRequested?.Invoke(SelectedAircraft, SelectedAirport);
+            spawn.speedKnots = defaultSpawn.speedKnots;
+            FlyRequested?.Invoke(SelectedAircraft, spawn);
         }
 
-        void ReportStatus(string sceneryError)
+        void ReportStatus()
         {
             if (statusText == null) return;
 
-            if (!string.IsNullOrEmpty(sceneryError))
-            {
-                statusText.text = sceneryError;
-                return;
-            }
-
-            if (aircraft.Count == 0)
-            {
-                statusText.text = $"No aircraft found in {AircraftCatalog.RootPath}";
-                return;
-            }
-
-            int airportCount = sceneries.SelectableAirports().Count;
-            int regionCount = sceneries.RegionCount;
-            statusText.text = $"{aircraft.Count} aircraft - {airportCount} airport" +
-                              $"{(airportCount == 1 ? "" : "s")} - " +
-                              $"{regionCount} region{(regionCount == 1 ? "" : "s")}";
+            statusText.text = aircraft.Count == 0
+                ? $"No aircraft found in {AircraftCatalog.RootPath}"
+                : $"{aircraft.Count} aircraft - WGS84 globe, ocean only";
         }
     }
 }

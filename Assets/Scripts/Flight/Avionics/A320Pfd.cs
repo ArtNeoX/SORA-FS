@@ -1,4 +1,4 @@
-using CirrusFS.Sim;
+using CirrusFS.Geo;
 using UnityEngine;
 
 namespace CirrusFS.Flight.Avionics
@@ -10,9 +10,11 @@ namespace CirrusFS.Flight.Avionics
     /// ribbon, vertical speed scale, heading tape, radio altitude. The FMA, FD bars, ILS
     /// scales, selected targets and baro setting wait for the systems that feed them.
     ///
-    /// Until terrain elevation exists the ground is world height 0, so altitude and radio
-    /// altitude are the same number: the height of the lowest wheel bottom, which reads 0 on
-    /// the ground as the real RA is calibrated to.
+    /// Until terrain elevation exists the only surface is the ocean at h = 0 on the WGS84
+    /// ellipsoid, so altitude and radio altitude are the same number: the ellipsoid height of
+    /// the lowest wheel bottom, which reads 0 on the water as the real RA is calibrated to.
+    /// Attitude and heading are measured against the local frame at the aircraft, not
+    /// Unity's axes, which only match it at the floating origin.
     ///
     /// Layout is in the pixels of the 826 x 842 reference artwork, y down.
     public class A320Pfd : GlassDisplay
@@ -91,18 +93,19 @@ namespace CirrusFS.Flight.Avionics
             ResolveAircraft();
             Transform t = aircraft ? aircraft.transform : transform.root;
 
-            Vector3 f = t.forward, r = t.right, u = t.up;
+            // Body axes in the local east/up/north frame at the aircraft.
+            Quaternion toLocal = Quaternion.Inverse(GeoOrigin.EnuRotationAt(t.position));
+            Vector3 f = toLocal * t.forward, r = toLocal * t.right, u = toLocal * t.up;
             pitch = Mathf.Asin(Mathf.Clamp(f.y, -1f, 1f)) * Mathf.Rad2Deg;
             bank = Mathf.Atan2(-r.y, u.y) * Mathf.Rad2Deg;
-            Vector3 g = WorldOrigin.WorldToGeoFrame(f);
-            heading = Mathf.Repeat(Mathf.Atan2(g.x, g.z) * Mathf.Rad2Deg - magneticVariation, 360f);
+            heading = Mathf.Repeat(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg - magneticVariation, 360f);
 
-            altFt = (WheelBottomHeight(t) + (float)WorldOrigin.OffsetUp) * FeetPerMetre;
+            altFt = WheelBottomHeight(t) * FeetPerMetre;
             raFt = altFt;
 
             ias = aircraft ? aircraft.AirspeedKnots : 0f;
             Vector3 vel = rb && Application.isPlaying ? rb.linearVelocity : Vector3.zero;
-            float vsTarget = vel.y * FpmPerMs;
+            float vsTarget = Vector3.Dot(vel, GeoOrigin.UpAt(t.position)) * FpmPerMs;
 
             Vector3 vLocal = t.InverseTransformDirection(vel);
             slipDeg = vLocal.z > 10f ? Mathf.Atan2(vLocal.x, vLocal.z) * Mathf.Rad2Deg : 0f;
@@ -134,16 +137,18 @@ namespace CirrusFS.Flight.Avionics
 
         static float Smooth(float dt, float tau) => tau > 0f ? 1f - Mathf.Exp(-dt / tau) : 1f;
 
-        /// World height of the lowest wheel bottom, taken from the airframe-fixed rest
+        /// Ellipsoid height of the lowest wheel bottom, taken from the airframe-fixed rest
         /// position so strut travel does not move it.
         float WheelBottomHeight(Transform t)
         {
-            if (!aircraft || !gear || gear.gears == null || gear.gears.Length == 0) return t.position.y;
+            if (!aircraft || !gear || gear.gears == null || gear.gears.Length == 0)
+                return (float)GeoOrigin.HeightAt(t.position);
             Vector3 refOffset = aircraft.RefOffset;
-            float min = float.MaxValue;
+            double min = double.MaxValue;
             foreach (var g in gear.gears)
-                min = Mathf.Min(min, t.TransformPoint(refOffset + g.mountLocal - new Vector3(0f, g.radius, 0f)).y);
-            return min;
+                min = System.Math.Min(min, GeoOrigin.HeightAt(
+                    t.TransformPoint(refOffset + g.mountLocal - new Vector3(0f, g.radius, 0f))));
+            return (float)min;
         }
 
         // ---- drawing ----------------------------------------------------------

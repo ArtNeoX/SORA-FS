@@ -48,7 +48,7 @@ namespace CirrusFS.Sim
         public Color hoverColor = new Color(0.16f, 0.22f, 0.30f, 0.90f);
         public Color selectedColor = new Color(0.16f, 0.42f, 0.85f, 0.95f);
 
-        /// The data this row stands for: an AircraftEntry or an AirportRef.
+        /// The data this row stands for, e.g. an AircraftEntry.
         public object Payload { get; private set; }
 
         /// Lower-cased haystack the search box matches against.

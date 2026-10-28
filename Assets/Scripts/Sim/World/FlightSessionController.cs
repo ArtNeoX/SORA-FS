@@ -1,4 +1,5 @@
 using CirrusFS.Flight;
+using CirrusFS.Geo;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -32,6 +33,12 @@ namespace CirrusFS.Sim
                  "automatically if left empty.")]
         public FlightHud hud;
 
+        [Tooltip("Sea-surface collision patch that follows the aircraft. Found automatically.")]
+        public WaterSurfaceCollider waterContact;
+
+        [Tooltip("F1 globe debug window. Found automatically.")]
+        public GeoDebugWindow debugWindow;
+
         [Header("Behaviour")]
         [Tooltip("Escape returns to the menu and parks the aircraft.")]
         public bool escapeReturnsToMenu = true;
@@ -50,6 +57,8 @@ namespace CirrusFS.Sim
             if (menu == null) menu = FindFirstObjectByType<StartMenuController>(FindObjectsInactive.Include);
             if (spawner == null) spawner = FindFirstObjectByType<FlightSpawner>();
             if (floatingOrigin == null) floatingOrigin = FindFirstObjectByType<FloatingOriginManager>();
+            if (waterContact == null) waterContact = FindFirstObjectByType<WaterSurfaceCollider>();
+            if (debugWindow == null) debugWindow = FindFirstObjectByType<GeoDebugWindow>();
         }
 
         void OnEnable()
@@ -77,7 +86,7 @@ namespace CirrusFS.Sim
 
         // ---- transitions ---------------------------------------------------------
 
-        void HandleFlyRequested(AircraftEntry aircraft, AirportRef airport)
+        void HandleFlyRequested(AircraftEntry aircraft, SpawnPoint spawn)
         {
             if (spawner == null)
             {
@@ -85,7 +94,7 @@ namespace CirrusFS.Sim
                 return;
             }
 
-            GameObject spawned = spawner.Spawn(aircraft, airport);
+            GameObject spawned = spawner.Spawn(aircraft, spawn);
             if (spawned == null)
             {
                 // The spawner has already logged why. Stay in the menu rather than dropping the
@@ -94,9 +103,11 @@ namespace CirrusFS.Sim
             }
 
             if (floatingOrigin != null) floatingOrigin.SetTrackedAircraft(spawned.transform);
-            else Debug.LogWarning("[FlightSession] No FloatingOriginManager: precision will degrade past 10 km.");
+            else Debug.LogWarning("[FlightSession] No FloatingOriginManager: precision will degrade past 5 km.");
 
             if (chaseCamera != null) chaseCamera.target = spawned.transform;
+            if (waterContact != null) waterContact.target = spawned.transform;
+            if (debugWindow != null) debugWindow.target = spawned.transform;
 
             if (hud != null)
             {
@@ -118,8 +129,8 @@ namespace CirrusFS.Sim
             Cursor.visible = !lockCursorInFlight;
         }
 
-        /// Returns to the menu and parks the aircraft. The scenery stays put; the next Fly
-        /// realigns it.
+        /// Returns to the menu and parks the aircraft. The next Fly resets the floating origin
+        /// onto its own spawn point.
         public void ShowMenu()
         {
             InFlight = false;
@@ -132,6 +143,8 @@ namespace CirrusFS.Sim
             // the last view, which makes a reasonable backdrop.
             if (hud != null) hud.aircraft = null;
             if (chaseCamera != null) chaseCamera.target = null;
+            if (waterContact != null) waterContact.target = null;
+            if (debugWindow != null) debugWindow.target = null;
 
             if (hudRoot != null) hudRoot.SetActive(false);
             if (menuRoot != null) menuRoot.SetActive(true);

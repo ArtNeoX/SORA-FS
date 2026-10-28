@@ -239,6 +239,13 @@ namespace CirrusFS.Flight
             return null;
         }
 
+        /// Gear up and locked, for a spawn that starts in flight.
+        public void SetGearRetracted()
+        {
+            GearLeverDown = false;
+            GearPosition = 1f;
+        }
+
         // Retraction is inhibited with weight on any wheel.
         void UpdateGearLever(float dt, bool weightOnWheels)
         {

@@ -1,4 +1,5 @@
 using System;
+using CirrusFS.Geo;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -86,7 +87,7 @@ namespace CirrusFS.Flight
         public float VerticalSpeed { get; private set; }
         public float FlapPos => flapPos;
         public float AirbrakePos => airbrkPos;
-        public float WeightNewtons => config.massKg * Physics.gravity.magnitude;
+        public float WeightNewtons => config.massKg * (float)GeoMath.StandardGravity;
         public bool MouseMode { get; private set; }
         public float MouseRoll { get; private set; }
         public float MousePitch { get; private set; }
@@ -366,7 +367,22 @@ namespace CirrusFS.Flight
             AngleOfAttackDeg = speed > 0.1f
                 ? Mathf.Atan2(-linLocalStart.y, linLocalStart.z) * Mathf.Rad2Deg
                 : 0f;
-            VerticalSpeed = linVel.y;
+            // Unity +Y is local up only at the floating origin; measure against the real one.
+            VerticalSpeed = Vector3.Dot(linVel, GeoOrigin.UpAt(rb.position));
+        }
+
+        /// Sets the throttle lever and spools the engines straight to it, for a spawn that
+        /// starts in flight.
+        public void PrimeThrottle(float lever)
+        {
+            throttle = Mathf.Clamp01(lever);
+            if (engines == null) return;
+
+            for (int i = 0; i < engines.Length; i++)
+            {
+                engines[i].current = engines[i].def.idleThrust +
+                                     (engines[i].def.maxThrust - engines[i].def.idleThrust) * throttle;
+            }
         }
 
         /// I^-1 * torque, both in the aircraft's local frame.

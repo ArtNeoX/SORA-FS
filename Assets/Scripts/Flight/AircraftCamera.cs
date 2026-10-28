@@ -1,3 +1,4 @@
+using CirrusFS.Geo;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -9,7 +10,13 @@ namespace CirrusFS.Flight
     ///              along the anchor's +Z. Hold the right mouse button to turn your head:
     ///              the position never moves, only the view direction.
     ///   Orbital  - the original chase view: follows the aircraft's position at a fixed
-    ///              radius with a world-space, mouse-owned view direction.
+    ///              radius with a mouse-owned view direction. Yaw and pitch are measured in the
+    ///              local horizon frame at the aircraft (not Unity's axes, which turn with every
+    ///              floating-origin re-centre), so the view holds still over the globe.
+    ///              "+" / "-" (and the numpad keys) multiply / divide the distance by
+    ///              `zoomStep`, from `minDistance` out to `maxDistance`. Past a few hundred
+    ///              kilometres the aim drifts from the aircraft to the Earth's centre, so at
+    ///              full distance the whole globe sits in the middle of the frame.
     ///
     /// Cockpit is the default. The two modes keep their own FOV and near clip, so switching
     /// back and forth does not carry one view's zoom into the other.
@@ -38,6 +45,17 @@ namespace CirrusFS.Flight
         public float maxFov = 70f;
         public float fovIncrement = 5f;
         [Range(0f, 1f)] public float smoothness = 0.15f;
+
+        [Header("Orbit distance")]
+        [Tooltip("Factor applied per + / - press.")]
+        public float zoomStep = 1.5f;
+        public float minDistance = 10f;
+        [Tooltip("50,000 km: far enough to see the whole Earth.")]
+        public float maxDistance = 5.0e7f;
+        [Tooltip("Distance at which the aim starts moving from the aircraft to the Earth's centre, m.")]
+        public float globeAimStart = 2.0e5f;
+        [Tooltip("Distance by which the aim is fully on the Earth's centre, m.")]
+        public float globeAimEnd = 2.0e7f;
 
         [Header("Orbit")]
         public float orbitSensitivity = 0.2f;
@@ -125,6 +143,7 @@ namespace CirrusFS.Flight
 
             bool cockpit = Mode == ViewMode.Cockpit && resolvedCockpitView != null;
             ReadZoom(cockpit);
+            if (!cockpit) ReadDistanceKeys();
 
             if (cockpit) UpdateCockpit();
             else UpdateOrbital();
@@ -182,6 +201,20 @@ namespace CirrusFS.Flight
 
             if (cockpit) cockpitTargetFov = fov;
             else orbitalFov = fov;
+        }
+
+        /// "+" / "-" on the main row ("=" is the unshifted "+") or the numpad.
+        void ReadDistanceKeys()
+        {
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard == null) return;
+
+            if (keyboard.equalsKey.wasPressedThisFrame || keyboard.numpadPlusKey.wasPressedThisFrame)
+                distance /= zoomStep;
+            if (keyboard.minusKey.wasPressedThisFrame || keyboard.numpadMinusKey.wasPressedThisFrame)
+                distance *= zoomStep;
+
+            distance = Mathf.Clamp(distance, minDistance, maxDistance);
         }
 
         // ---- cockpit -------------------------------------------------------------
@@ -261,18 +294,34 @@ namespace CirrusFS.Flight
                 orbitPitch = Mathf.Clamp(orbitPitch - delta.y, minPitch, maxPitch);
             }
 
-            cam.nearClipPlane = orbitalNearClip;
+            // Near plane grows with distance so depth precision follows the view out to orbit,
+            // but always stays well inside the aircraft's own distance.
+            cam.nearClipPlane = Mathf.Max(orbitalNearClip, distance * 0.02f);
             cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, orbitalFov, smoothness);
 
-            // Purely world-space: the aircraft's rotation contributes nothing to the view
-            // direction, so aerobatics spin the airframe inside a steady frame instead of
-            // dragging the camera around with it.
+            // The aircraft's rotation contributes nothing to the view direction, so aerobatics
+            // spin the airframe inside a steady frame instead of dragging the camera around
+            // with it. That frame is the local horizon at the aircraft.
             // The offset stays body-local so the airframe keeps its place in frame; only the
             // orbit centre tracks it, never the view direction.
             Vector3 focus = target.TransformPoint(focusOffset);
-            Quaternion rot = Quaternion.Euler(orbitPitch, orbitYaw, 0f);
+            Quaternion horizon = GeoOrigin.EnuRotationAt(focus);
+            Quaternion rot = horizon * Quaternion.Euler(orbitPitch, orbitYaw, 0f);
+            Vector3 position = focus + rot * new Vector3(0f, 0f, -distance);
 
-            transform.SetPositionAndRotation(focus + rot * new Vector3(0f, 0f, -distance), rot);
+            // Far out, aim progressively at the Earth's centre so the globe is framed whole.
+            float aimT = Mathf.InverseLerp(Mathf.Log(globeAimStart), Mathf.Log(globeAimEnd),
+                                           Mathf.Log(Mathf.Max(distance, 1f)));
+            aimT = aimT * aimT * (3f - 2f * aimT);
+            if (aimT > 0f)
+            {
+                Vector3 toFocus = (focus - position).normalized;
+                Vector3 toCentre = (GeoOrigin.EcefToUnity(Double3.Zero) - position).normalized;
+                Vector3 aim = Vector3.Slerp(toFocus, toCentre, aimT);
+                rot = Quaternion.LookRotation(aim, horizon * Vector3.up);
+            }
+
+            transform.SetPositionAndRotation(position, rot);
         }
     }
 }

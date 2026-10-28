@@ -1,0 +1,10 @@
+BlueMarble_5400x2700.jpg
+
+NASA Blue Marble: Next Generation, December 2004, topography + bathymetry
+("world.topo.bathy.200412.3x5400x2700.jpg"), NASA Earth Observatory / Visible Earth,
+image record 73909. Imagery by Reto Stockli, NASA Earth Observatory.
+Public domain (NASA imagery is not copyrighted).
+
+Equirectangular (plate carree): longitude -180..180 left to right, latitude 90..-90 top to
+bottom, 5400 x 2700 pixels, 4 arc-minutes per pixel.
+Bundled for the F1 debug mini-map; nothing is fetched at runtime.

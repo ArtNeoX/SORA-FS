@@ -1,166 +1,148 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using CirrusFS.Geo;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
 namespace CirrusFS.Sim
 {
-    /// Keeps the aircraft near (0, 0, 0) by moving the world instead of the aircraft.
+    /// Keeps the CAMERA near Unity (0,0,0) on a round Earth.
     ///
-    /// Why it is needed: a float has ~7 significant digits, so at 10 km from the origin the
-    /// spacing between representable positions is about 1 mm, and by 100 km it is a centimetre.
-    /// The blade-element model integrates small forces at 240 Hz against wheel contacts of a
-    /// few millimetres, so that quantisation shows up as jitter in the suspension and noise in
-    /// the aero forces long before anything looks visually wrong.
+    /// When the camera gets more than `thresholdMetres` from the origin, GeoOrigin is moved to
+    /// the camera's ECEF position and its axes are re-aligned to the local east/up/north there.
+    /// That is a translation AND a rotation of the whole Unity frame, so every scene root is
+    /// carried through the same GeoFrameChange: position, rotation, and for rigidbodies the
+    /// linear and angular velocity too. Objects that rebuild themselves from ECEF (the ocean,
+    /// GeoBody) also listen to GeoOrigin.Recentered and re-derive their own state.
     ///
-    /// The shift itself is one subtraction applied to every world object, on the frame the
-    /// threshold is crossed. Velocities, angular velocities and accumulated forces all live in
-    /// their own vectors and are untouched by a pure translation, so the physics state carries
-    /// across unchanged. The two things that do need care:
+    /// Why the camera and not the aircraft: precision only matters where something is being
+    /// looked at closely, and in the external view the camera can be 50,000 km from the
+    /// aircraft. The aircraft's own position survives that because GeoBody keeps it in double.
     ///
-    ///  - Interpolation. A Rigidbody set to Interpolate blends between its last two physics
-    ///    poses, so teleporting it makes it smear 10 km across one frame. Interpolation is
-    ///    switched off for the teleport and restored after the next physics step, once the
-    ///    buffer refills with post-shift poses.
-    ///  - Transform sync. Physics.autoSyncTransforms is off by default, so colliders keep their
-    ///    pre-shift pose until Physics.SyncTransforms() is called. Without it the first
-    ///    raycast after a shift - the landing gear's, for one - queries stale geometry.
+    /// The care points carried over from the flat version:
+    ///  - Interpolation is switched off for the teleport and restored after the next physics
+    ///    step, or the body smears across the shift for one frame.
+    ///  - Physics.SyncTransforms() runs right after, so the next raycast (landing gear) does
+    ///    not query colliders at their pre-shift pose.
     ///
-    /// Execution order runs this before the default order so the chase camera, which rebuilds
-    /// its pose from the aircraft every LateUpdate, reads the already-shifted position and the
-    /// shift frame renders identically to any other.
-    [DefaultExecutionOrder(-50)]
+    /// Runs after the camera rig (which positions the camera in LateUpdate) and before the
+    /// clip-plane and ocean updates, so the frame that renders is already re-centred.
+    [DefaultExecutionOrder(100)]
     [DisallowMultipleComponent]
     public class FloatingOriginManager : MonoBehaviour
     {
-        [Serializable] public class ShiftEvent : UnityEvent<Vector3> { }
+        [Serializable] public class RecenterEvent : UnityEvent<int> { }
 
         [Header("Tracking")]
-        [Tooltip("The aircraft to keep near the origin. Set by the spawner at runtime.")]
+        [Tooltip("The camera whose position decides re-centring. Defaults to Camera.main.")]
+        public Transform trackedCamera;
+
+        [Tooltip("The aircraft. Set by the session at runtime; its rigidbodies are carried with " +
+                 "their velocities intact.")]
         public Transform trackedAircraft;
 
-        [Tooltip("Horizontal distance from the origin that triggers a shift, metres. Altitude " +
-                 "is ignored: climbing does not degrade precision the way ground track does.")]
-        public float thresholdMetres = 10000f;
+        [Tooltip("Distance of the camera from Unity (0,0,0) that triggers a re-centre, metres.")]
+        public float thresholdMetres = 5000f;
 
         [Header("Behaviour")]
-        [Tooltip("Keep the aircraft's altitude through a shift. With this off the aircraft is " +
-                 "snapped to a literal (0, 0, 0), which also drops it to sea level.")]
-        public bool preserveAltitude = true;
-
-        [Tooltip("Shift every root object in the scene except the aircraft and anything marked " +
-                 "FloatingOriginIgnore. With this off, only extraRoots and registered " +
-                 "FloatingOriginShiftable objects move.")]
+        [Tooltip("Carry every root object in the scene except those marked FloatingOriginIgnore.")]
         public bool autoCollectSceneRoots = true;
 
-        [Tooltip("Extra transforms to shift. Only needed when auto-collection is off.")]
-        public List<Transform> extraRoots = new List<Transform>();
-
-        [Tooltip("Clear trails on the aircraft so they do not draw a 10 km streak back to the " +
-                 "old origin.")]
+        [Tooltip("Clear trails on the aircraft so they do not draw a streak back to the old origin.")]
         public bool clearTrailsOnShift = true;
 
-        public bool logShifts = true;
+        public bool logShifts;
 
         [Header("Events")]
-        [Tooltip("Fired after a shift with the translation that was applied to the world.")]
-        public ShiftEvent onOriginShifted = new ShiftEvent();
+        [Tooltip("Fired after a re-centre with the new re-centre count.")]
+        public RecenterEvent onRecentered = new RecenterEvent();
 
-        /// Total distance the world has been moved, metres. Useful as a sanity readout.
-        public double TotalShiftedMetres { get; private set; }
-
-        public int ShiftCount { get; private set; }
+        public int RecenterCount => GeoOrigin.RecenterCount;
 
         readonly List<Rigidbody> dynamicBodies = new List<Rigidbody>();
         readonly List<Rigidbody> bodiesToRestore = new List<Rigidbody>();
         readonly List<RigidbodyInterpolation> interpolationToRestore = new List<RigidbodyInterpolation>();
-        readonly List<Vector3> capturedLinear = new List<Vector3>();
-        readonly List<Vector3> capturedAngular = new List<Vector3>();
         readonly List<Transform> shiftTargets = new List<Transform>();
 
         TrailRenderer[] aircraftTrails = Array.Empty<TrailRenderer>();
-        Transform aircraftRoot;
         Coroutine restoreRoutine;
 
         // ---- setup ---------------------------------------------------------------
 
-        /// Points the manager at a freshly spawned aircraft and caches everything on it that a
-        /// shift has to touch.
         public void SetTrackedAircraft(Transform aircraft)
         {
             trackedAircraft = aircraft;
-            aircraftRoot = aircraft != null ? aircraft.root : null;
-
             dynamicBodies.Clear();
             aircraftTrails = Array.Empty<TrailRenderer>();
 
-            if (aircraftRoot != null)
+            if (aircraft != null)
             {
-                dynamicBodies.AddRange(aircraftRoot.GetComponentsInChildren<Rigidbody>(true));
-                aircraftTrails = aircraftRoot.GetComponentsInChildren<TrailRenderer>(true);
+                dynamicBodies.AddRange(aircraft.root.GetComponentsInChildren<Rigidbody>(true));
+                aircraftTrails = aircraft.root.GetComponentsInChildren<TrailRenderer>(true);
             }
         }
 
-        /// Registers a rigidbody outside the aircraft - AI traffic, dropped stores - so it is
-        /// teleported with its velocity intact rather than moved as a plain transform.
         public void RegisterDynamicBody(Rigidbody body)
         {
             if (body != null && !dynamicBodies.Contains(body)) dynamicBodies.Add(body);
         }
 
-        public void UnregisterDynamicBody(Rigidbody body)
+        public void UnregisterDynamicBody(Rigidbody body) => dynamicBodies.Remove(body);
+
+        Transform ResolveCamera()
         {
-            dynamicBodies.Remove(body);
+            if (trackedCamera != null) return trackedCamera;
+            Camera main = Camera.main;
+            return main != null ? main.transform : null;
         }
 
         // ---- the check -----------------------------------------------------------
 
         void LateUpdate()
         {
-            if (trackedAircraft == null) return;
+            if (!GeoOrigin.IsSet) return;
 
-            Vector3 position = trackedAircraft.position;
-            float horizontalSqr = position.x * position.x + position.z * position.z;
+            Transform cam = ResolveCamera();
+            if (cam == null) return;
 
-            if (horizontalSqr < thresholdMetres * thresholdMetres) return;
+            if (cam.position.sqrMagnitude < thresholdMetres * thresholdMetres) return;
 
-            // Move the world by the negative of where the aircraft got to, which lands the
-            // aircraft on the origin exactly. Altitude is left alone by default: it costs no
-            // precision and dropping it would put the aircraft at sea level mid-flight.
-            var translation = new Vector3(-position.x,
-                                          preserveAltitude ? 0f : -position.y,
-                                          -position.z);
-
-            ApplyShift(translation);
+            RecenterOn(GeoOrigin.UnityToEcef(cam.position));
         }
 
-        // ---- the shift -----------------------------------------------------------
+        // ---- the re-centre -------------------------------------------------------
 
-        /// Translates the whole world by `translation` and the aircraft with it. Public so a
-        /// spawn, a teleport or a test can force one.
-        public void ApplyShift(Vector3 translation)
+        /// Moves the origin to `ecef` and carries the whole scene with it. Public so a test or
+        /// a teleport can force one.
+        public void RecenterOn(Double3 ecef)
         {
-            if (translation.sqrMagnitude <= Mathf.Epsilon) return;
-
             CollectShiftTargets();
 
-            // 1. Freeze interpolation and note the velocities before anything moves. Each
-            //    Rigidbody is only ever moved by its transform, never by both a parent move and
-            //    an rb.position write, which would shift it twice.
+            // 1. Freeze interpolation and capture velocities while they are still in the old frame.
             bodiesToRestore.Clear();
             interpolationToRestore.Clear();
-            capturedLinear.Clear();
-            capturedAngular.Clear();
+
+            // The physics pose is captured separately from the transform: with interpolation the
+            // transform lags the physics pose by up to a step, and moving the body from the
+            // transform would throw that fraction of a step's travel away on every re-centre.
+            var linear = new Vector3[dynamicBodies.Count];
+            var angular = new Vector3[dynamicBodies.Count];
+            var physicsPosition = new Vector3[dynamicBodies.Count];
+            var physicsRotation = new Quaternion[dynamicBodies.Count];
 
             for (int i = 0; i < dynamicBodies.Count; i++)
             {
                 Rigidbody body = dynamicBodies[i];
-                capturedLinear.Add(body != null ? body.linearVelocity : Vector3.zero);
-                capturedAngular.Add(body != null ? body.angularVelocity : Vector3.zero);
+                if (body == null) continue;
 
-                if (body != null && body.interpolation != RigidbodyInterpolation.None)
+                linear[i] = body.linearVelocity;
+                angular[i] = body.angularVelocity;
+                physicsPosition[i] = body.position;
+                physicsRotation[i] = body.rotation;
+
+                if (body.interpolation != RigidbodyInterpolation.None)
                 {
                     bodiesToRestore.Add(body);
                     interpolationToRestore.Add(body.interpolation);
@@ -168,31 +150,31 @@ namespace CirrusFS.Sim
                 }
             }
 
-            // 2. Move the world. Every target is a root of its own hierarchy, so children -
-            //    including child rigidbodies - come along exactly once.
+            // 2. Move the origin. Listeners that live in ECEF (ocean, GeoBody) update here.
+            GeoFrameChange change = GeoOrigin.Recenter(ecef);
+
+            // 3. Carry every root through the same rigid transform. This frame renders from these
+            //    transforms, so an interpolated body keeps its interpolated look.
             for (int i = 0; i < shiftTargets.Count; i++)
             {
-                shiftTargets[i].position += translation;
+                Transform t = shiftTargets[i];
+                t.SetPositionAndRotation(change.TransformPoint(t.position), change.TransformRotation(t.rotation));
             }
 
-            // 3. Move the aircraft. This is the same translation, which puts it back on the
-            //    origin: it is the one object the world is being moved around.
-            if (aircraftRoot != null) aircraftRoot.position += translation;
-
-            // 4. Push the new poses into PhysX. Until this runs the colliders are still where
-            //    they were, and the next raycast - the landing gear's, among others - would
-            //    query stale geometry.
+            // 4. Push the new poses into PhysX before anything raycasts...
             Physics.SyncTransforms();
 
-            // 5. A pure translation cannot change a velocity, but they are written back
-            //    explicitly so this still holds if a teleport is ever resolved differently.
+            // 5. ...then put each body's true physics pose back on top of the transform-derived
+            //    one, and turn its velocities into the new axes.
             for (int i = 0; i < dynamicBodies.Count; i++)
             {
                 Rigidbody body = dynamicBodies[i];
                 if (body == null) continue;
 
-                body.linearVelocity = capturedLinear[i];
-                body.angularVelocity = capturedAngular[i];
+                body.position = change.TransformPoint(physicsPosition[i]);
+                body.rotation = change.TransformRotation(physicsRotation[i]);
+                body.linearVelocity = change.TransformDirection(linear[i]);
+                body.angularVelocity = change.TransformDirection(angular[i]);
             }
 
             if (clearTrailsOnShift)
@@ -209,22 +191,16 @@ namespace CirrusFS.Sim
                 restoreRoutine = StartCoroutine(RestoreInterpolation());
             }
 
-            ShiftCount++;
-            TotalShiftedMetres += translation.magnitude;
-
-            WorldOrigin.AccumulateShift(translation);
-            onOriginShifted.Invoke(translation);
+            onRecentered.Invoke(GeoOrigin.RecenterCount);
 
             if (logShifts)
             {
-                Debug.Log($"[FloatingOrigin] Shift #{ShiftCount}: world moved {translation} " +
-                          $"({translation.magnitude / 1000f:F2} km), {shiftTargets.Count} roots and " +
-                          $"{dynamicBodies.Count} bodies. {WorldOrigin.Describe()}");
+                Debug.Log($"[FloatingOrigin] Re-centre #{GeoOrigin.RecenterCount}: moved " +
+                          $"{change.Translation.Magnitude / 1000.0:F2} km, turned {change.AngleDeg:F4} deg, " +
+                          $"{shiftTargets.Count} roots. {GeoOrigin.Describe()}");
             }
         }
 
-        /// Interpolation is restored only after a physics step has run, so the interpolation
-        /// buffer refills with post-shift poses instead of blending from the old ones.
         IEnumerator RestoreInterpolation()
         {
             yield return new WaitForFixedUpdate();
@@ -247,63 +223,30 @@ namespace CirrusFS.Sim
 
             if (autoCollectSceneRoots)
             {
-                Scene scene = SceneManager.GetActiveScene();
-                foreach (GameObject root in scene.GetRootGameObjects())
+                for (int s = 0; s < SceneManager.sceneCount; s++)
                 {
-                    if (ShouldShift(root)) shiftTargets.Add(root.transform);
-                }
-            }
+                    Scene scene = SceneManager.GetSceneAt(s);
+                    if (!scene.isLoaded) continue;
 
-            for (int i = 0; i < extraRoots.Count; i++)
-            {
-                Transform target = extraRoots[i];
-                if (target != null && !shiftTargets.Contains(target)) shiftTargets.Add(target);
-            }
-
-            IReadOnlyList<FloatingOriginShiftable> shiftables = FloatingOriginShiftable.Registered;
-            for (int i = 0; i < shiftables.Count; i++)
-            {
-                FloatingOriginShiftable shiftable = shiftables[i];
-                if (shiftable == null) continue;
-
-                Transform target = shiftable.transform;
-
-                // Skip anything already covered by a root that is being shifted, or it would
-                // move twice.
-                if (IsCoveredByTarget(target)) continue;
-
-                shiftTargets.Add(target);
-
-                if (shiftable.hasDynamicBodies)
-                {
-                    foreach (Rigidbody body in target.GetComponentsInChildren<Rigidbody>(true))
+                    foreach (GameObject root in scene.GetRootGameObjects())
                     {
-                        RegisterDynamicBody(body);
+                        if (ShouldShift(root)) shiftTargets.Add(root.transform);
                     }
                 }
             }
 
-            // A registered body that sits outside both the aircraft and every shifted root - a
-            // pooled object parented to nothing, say - would otherwise be left 10 km behind.
-            for (int i = 0; i < dynamicBodies.Count; i++)
-            {
-                Rigidbody body = dynamicBodies[i];
-                if (body == null) continue;
+            // The camera is carried even if it is marked ignore: it was placed this frame in the
+            // old frame and has to render in the new one.
+            Transform cam = ResolveCamera();
+            if (cam != null && !IsCoveredByTarget(cam)) shiftTargets.Add(cam.root);
 
-                Transform bodyRoot = body.transform.root;
-                if (aircraftRoot != null && bodyRoot == aircraftRoot) continue;
-                if (IsCoveredByTarget(bodyRoot)) continue;
-
-                shiftTargets.Add(bodyRoot);
-            }
+            if (trackedAircraft != null && !IsCoveredByTarget(trackedAircraft)) shiftTargets.Add(trackedAircraft.root);
         }
 
         bool ShouldShift(GameObject root)
         {
             if (root == gameObject) return false;
-            if (aircraftRoot != null && root.transform == aircraftRoot) return false;
             if (root.GetComponent<FloatingOriginIgnore>() != null) return false;
-
             return true;
         }
 
@@ -317,22 +260,10 @@ namespace CirrusFS.Sim
             return false;
         }
 
-        // ---- editor readout ------------------------------------------------------
-
         void OnDrawGizmosSelected()
         {
             Gizmos.color = new Color(0.27f, 0.6f, 1f, 0.6f);
-
-            const int segments = 64;
-            Vector3 previous = new Vector3(thresholdMetres, 0f, 0f);
-            for (int i = 1; i <= segments; i++)
-            {
-                float angle = i / (float)segments * Mathf.PI * 2f;
-                var next = new Vector3(Mathf.Cos(angle) * thresholdMetres, 0f,
-                                       Mathf.Sin(angle) * thresholdMetres);
-                Gizmos.DrawLine(previous, next);
-                previous = next;
-            }
+            Gizmos.DrawWireSphere(Vector3.zero, thresholdMetres);
         }
     }
 }

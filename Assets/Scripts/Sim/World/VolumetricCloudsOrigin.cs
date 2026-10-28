@@ -1,72 +1,60 @@
 using System.Collections.Generic;
+using CirrusFS.Geo;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace CirrusFS.Sim
 {
-    /// Keeps the volumetric cloud layer still while the floating origin moves the world under it.
+    /// Keeps the volumetric cloud layer still while the floating origin re-centres.
     ///
     /// The clouds are raymarched in planet space and, with localClouds off, anchor their noise
     /// to the camera's absolute world position:
     ///
     ///     positionPS.xz += _WorldSpaceCameraPos.xz;    // VolumetricCloudsUtilities.hlsl
     ///
-    /// A shift moves the camera and the world together, so nothing changes on screen except
-    /// that term, which jumps by the whole shift distance - ten kilometres by default. The
-    /// noise field is sampled somewhere completely different and the entire cloud layer snaps
-    /// in a single frame.
+    /// A re-centre moves the camera back to (0,0,0), so that term would jump by the whole
+    /// re-centre distance and the noise would be sampled somewhere else: the layer snaps.
+    /// `_CloudsOriginOffset` hands the shader back what the re-centre took away - the vector
+    /// from the spawn origin to the current origin, in the current Unity axes, computed in
+    /// double from ECEF and only narrowed on the way to the GPU.
     ///
-    /// The fix is to hand the shader back what the shift took away. `_CloudsOriginOffset` holds
-    /// the negated sum of every shift, so the noise keeps being sampled in the world the flight
-    /// started in and a shift changes nothing the raymarch can see.
+    /// The cloud shader is a flat-layer model: it does not know the axes also turn by a few
+    /// hundredths of a degree per re-centre. That rotates the noise field about the camera by
+    /// the same tiny angle (centimetres at cloud distance), which is invisible. A proper
+    /// spherical cloud shell belongs with the terrain work.
     ///
-    /// Two frames' worth of care beyond that:
+    /// `_CloudsOriginShiftDelta` carries the translation for the re-centre frame only, so the
+    /// temporal reprojection can undo it; it is cleared once that frame has rendered.
     ///
-    ///  - The offset is accumulated in double and only narrowed to float on the way to the GPU.
-    ///    Accumulating in float would drift, and drift here reads as the clouds slowly sliding.
-    ///    The float the shader receives still quantises: at 10,000 km of ground track its
-    ///    spacing is about a metre, well under the finest erosion detail, and it degrades
-    ///    smoothly rather than snapping.
-    ///  - The clouds accumulate temporally, and the reprojection multiplies this frame's world
-    ///    position by last frame's view-projection matrix. On a shift frame those two live in
-    ///    worlds a shift apart, so the motion vector is wrong by the full shift distance, the
-    ///    history lookup lands off screen and the accumulation is dropped: one frame of raw,
-    ///    noisy raymarch. `_CloudsOriginShiftDelta` carries the translation for exactly that
-    ///    frame so the shader can undo it before reprojecting, and is cleared once the frame
-    ///    has rendered.
-    ///
-    /// No setup: it attaches itself to WorldOrigin at load and needs nothing in the scene.
-    /// Shift compensation only applies to global clouds. With localClouds on, the layer is
-    /// already anchored to the camera horizontally and a shift never moved it to begin with,
-    /// so the shader leaves that path alone.
+    /// Note: the volumetric clouds renderer feature is not on the active URP renderer at the
+    /// moment, so this only matters once clouds are switched back on.
     public static class VolumetricCloudsOrigin
     {
         static readonly int originOffsetId = Shader.PropertyToID("_CloudsOriginOffset");
         static readonly int originShiftDeltaId = Shader.PropertyToID("_CloudsOriginShiftDelta");
 
-        static double offsetX;
-        static double offsetY;
-        static double offsetZ;
+        static Double3 spawnOrigin;
+        static Vector3 offset;
         static int shiftFrame = -1;
         static bool hooked;
 
-        /// Metres the cloud noise is sampled away from the current scene frame: the negated sum
-        /// of every shift so far. Exposed for debug readouts.
-        public static Vector3 Offset => new Vector3((float)offsetX, (float)offsetY, (float)offsetZ);
+        /// Metres the cloud noise is sampled away from the current scene frame. Exposed for
+        /// debug readouts.
+        public static Vector3 Offset => offset;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Install()
         {
-            // WorldOrigin clears its Shifted event at SubsystemRegistration, which runs before
-            // this, so with domain reload off we re-subscribe to a clean event rather than
-            // stacking a second handler on the old one.
-            offsetX = 0.0;
-            offsetY = 0.0;
-            offsetZ = 0.0;
+            // GeoOrigin clears its events at SubsystemRegistration, which runs before this, so
+            // with domain reload off we re-subscribe to clean events.
+            spawnOrigin = GeoOrigin.Ecef;
+            offset = Vector3.zero;
             shiftFrame = -1;
 
-            WorldOrigin.Shifted -= OnOriginShifted;
-            WorldOrigin.Shifted += OnOriginShifted;
+            GeoOrigin.Recentered -= OnRecentered;
+            GeoOrigin.Recentered += OnRecentered;
+            GeoOrigin.OriginReset -= OnOriginReset;
+            GeoOrigin.OriginReset += OnOriginReset;
 
             if (!hooked)
             {
@@ -78,29 +66,26 @@ namespace CirrusFS.Sim
             Shader.SetGlobalVector(originShiftDeltaId, Vector4.zero);
         }
 
-        /// `worldTranslation` is what was added to every world object, so a point that was at p
-        /// is now at p + translation. Sampling the noise at (position - accumulated translation)
-        /// puts it back where it was.
-        static void OnOriginShifted(Vector3 worldTranslation)
+        static void OnOriginReset()
         {
-            offsetX -= worldTranslation.x;
-            offsetY -= worldTranslation.y;
-            offsetZ -= worldTranslation.z;
+            spawnOrigin = GeoOrigin.Ecef;
+            offset = Vector3.zero;
+            PushOffset();
+        }
 
+        static void OnRecentered(GeoFrameChange change)
+        {
+            offset = GeoOrigin.EcefDirToUnity(GeoOrigin.Ecef - spawnOrigin);
             PushOffset();
 
             // Consumed by the denoise pass, for this frame only.
             shiftFrame = Time.frameCount;
-            Shader.SetGlobalVector(originShiftDeltaId,
-                                   new Vector4(worldTranslation.x, worldTranslation.y,
-                                               worldTranslation.z, 0f));
+            Vector3 t = change.Translation.ToVector3();
+            Shader.SetGlobalVector(originShiftDeltaId, new Vector4(t.x, t.y, t.z, 0f));
         }
 
-        /// Clearing the delta is gated on the frame rather than done at the end of rendering,
-        /// because a frame can render more than one context - a game view and a scene view, or
-        /// a reflection probe - and every one of them has to see the shift. Clearing at the
-        /// start of a later frame's rendering leaves the shift frame intact and guarantees the
-        /// frame after it reprojects with a zero delta, which is what it needs.
+        /// Cleared at the start of a later frame's rendering rather than at the end of this
+        /// one, because a frame can render several contexts and every one must see the shift.
         static void OnBeginContextRendering(ScriptableRenderContext context, List<Camera> cameras)
         {
             if (shiftFrame == -1 || Time.frameCount == shiftFrame) return;
@@ -111,8 +96,7 @@ namespace CirrusFS.Sim
 
         static void PushOffset()
         {
-            Shader.SetGlobalVector(originOffsetId,
-                                   new Vector4((float)offsetX, (float)offsetY, (float)offsetZ, 0f));
+            Shader.SetGlobalVector(originOffsetId, new Vector4(offset.x, offset.y, offset.z, 0f));
         }
     }
 }

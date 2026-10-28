@@ -1,4 +1,5 @@
 using System;
+using CirrusFS.Geo;
 using UnityEngine;
 
 namespace CirrusFS.Flight
@@ -84,7 +85,7 @@ namespace CirrusFS.Flight
             if (!enableSuspension || gears.Length == 0) return;
 
             float h = Mathf.Clamp(Time.fixedDeltaTime, MinDt, MaxDt);
-            float g = Physics.gravity.magnitude;
+            float g = (float)GeoMath.StandardGravity;
             float W = rb.mass * g;
             if (W <= 0f) return;
 
@@ -202,7 +203,10 @@ namespace CirrusFS.Flight
         bool RaycastGround(Vector3 origin, float maxLen, out RaycastHit best)
         {
             best = default;
-            int count = Physics.RaycastNonAlloc(origin, Vector3.down, hitBuffer, maxLen,
+
+            // Down is toward the Earth, which is Unity -Y only at the floating origin.
+            Vector3 down = -GeoOrigin.UpAt(origin);
+            int count = Physics.RaycastNonAlloc(origin, down, hitBuffer, maxLen,
                 ~0, QueryTriggerInteraction.Ignore);
             float nearest = float.MaxValue;
             bool found = false;
