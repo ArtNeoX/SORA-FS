@@ -437,10 +437,10 @@ MonoBehaviour:
     - 30
     - 40
     flapResponse: 0.25
-    flapClFactor: 2.3
+    flapClFactor: 3.5
     flapCdFactor: 10.78
-    flapWingAreaFactor: 1.12
-    flapCpShift: 0.4
+    flapWingAreaFactor: 1.2
+    flapCpShift: 0.7
     airbrkAngles:
     - 0
     - 20
@@ -469,7 +469,7 @@ MonoBehaviour:
     mouseBoxAnchor: {x: 0.5, y: 0.6}
     surfaces:
     - name: MainWing
-      rootOffset: {x: 0, y: -0.2, z: 3.9}
+      rootOffset: {x: 0, y: -0.2, z: 4.5}
       span: 17.05
       rootChord: 5.8
       tipChord: 1.39
@@ -483,7 +483,7 @@ MonoBehaviour:
       control: 2
       controlDeg: 16
       ailStart: 0.8
-      flapStart: 0.13
+      flapStart: 0
       flapEnd: 0.78
       airbrkStart: 0.26
       airbrkEnd: 0.76
@@ -2431,7 +2431,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.52, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -24, y: -10.000092}
+  m_AnchoredPosition: {x: -24, y: -10.000061}
   m_SizeDelta: {x: -72, y: -260}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &400311051
@@ -2890,7 +2890,7 @@ Light:
   serializedVersion: 12
   m_Type: 1
   m_Color: {r: 1, g: 1, b: 1, a: 1}
-  m_Intensity: 250000
+  m_Intensity: 100000
   m_Range: 10
   m_SpotAngle: 30
   m_InnerSpotAngle: 21.80208
@@ -2933,7 +2933,7 @@ Light:
   m_LightShadowCasterMode: 2
   m_AreaSize: {x: 1, y: 1}
   m_BounceIntensity: 1
-  m_ColorTemperature: 8000
+  m_ColorTemperature: 6412
   m_UseColorTemperature: 1
   m_BoundingSphereOverride: {x: 3.5515e-41, y: 0, z: 0, w: 6.4291e-40}
   m_UseBoundingSphereOverride: 0
@@ -2952,13 +2952,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 499851628}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.10821977, y: 0.84549725, z: -0.18744218, w: 0.48814797}
+  m_LocalRotation: {x: 0.35355335, y: 0.61237246, z: -0.61237246, w: 0.35355335}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 25, y: 120, z: 0}
+  m_LocalEulerAnglesHint: {x: 90, y: 120, z: 0}
 --- !u!114 &499851631
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4240,7 +4240,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0.52, y: 1}
-  m_AnchoredPosition: {x: 24, y: -10.000092}
+  m_AnchoredPosition: {x: 24, y: -10.000061}
   m_SizeDelta: {x: -72, y: -260}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &769210786
@@ -6842,7 +6842,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0.36, y: 1}
-  m_AnchoredPosition: {x: 24, y: -3.0000916}
+  m_AnchoredPosition: {x: 24, y: -3.000061}
   m_SizeDelta: {x: -72, y: -214}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1419705028
@@ -7440,7 +7440,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.36, y: 0}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -24, y: -3.0000916}
+  m_AnchoredPosition: {x: -24, y: -3.000061}
   m_SizeDelta: {x: -72, y: -214}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1465177651
