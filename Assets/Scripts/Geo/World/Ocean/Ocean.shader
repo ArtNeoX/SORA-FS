@@ -87,6 +87,10 @@ Shader "CirrusFS/Ocean"
             float3 _OceanUvOriginB;
             float _OceanCameraHeight;     // camera height above the ellipsoid, m
 
+            // 1 while the time-of-day aerial perspective (AerialPerspectiveFeature) is hazing the
+            // scene; the simple haze below is then skipped so the sea is not hazed twice.
+            float _TOD_FogActive;
+
             struct Attributes
             {
                 float4 positionOS : POSITION;
@@ -188,7 +192,10 @@ Shader "CirrusFS/Ocean"
                 // facing away less, which is what makes the pattern visible looking straight
                 // down, where Fresnel leaves almost no reflection.
                 half waveLight = saturate(0.55 + 2.2 * (dot(N, L) - dot(geomN, L)) + 0.45 * saturate(dot(geomN, L)));
-                half3 body = _DeepColor.rgb * (0.25 + 0.75 * day) * (0.8 + 0.4 * waveLight) +
+                // Light coming up out of the water: the deep colour lit like a diffuse surface by the
+                // sky (ambient probe) and the sun, so it follows day and night (and exposure).
+                half3 deepLight = SampleSH(geomN) + sunColor * shadow * saturate(dot(geomN, L));
+                half3 body = _DeepColor.rgb * deepLight * (0.8 + 0.4 * waveLight) +
                              _ScatterColor.rgb * waveLight * shadow * sunColor * (1.0 - 0.4 * space);
 
                 half3 color = lerp(body, sky, fresnel);
@@ -204,7 +211,7 @@ Shader "CirrusFS/Ocean"
                 // worth once the camera is above it.
                 float airFraction = min(1.0, _AtmosphereHeight / max(_OceanCameraHeight, 1.0));
                 float path = dist * airFraction;
-                half haze = 1.0 - exp(-path / _HazeDistance);
+                half haze = (1.0 - exp(-path / _HazeDistance)) * (1.0 - _TOD_FogActive);
                 color = lerp(color, _HazeColor.rgb * sunColor * day, haze);
 
                 return half4(color, 1);

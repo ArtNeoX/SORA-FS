@@ -1,0 +1,25 @@
+{
+    "name": "CirrusFS.TimeOfDay.Tests",
+    "rootNamespace": "CirrusFS.TimeOfDay.Tests",
+    "references": [
+        "CirrusFS.Geo",
+        "CirrusFS.TimeOfDay",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

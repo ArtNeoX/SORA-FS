@@ -1,0 +1,76 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0ac6fc08550f09245a86a630cb71e299, type: 3}
+  m_Name: TimeOfDayProfile_Earth
+  m_EditorClassIdentifier: CirrusFS.TimeOfDay::CirrusFS.TimeOfDay.TimeOfDayProfile
+  atmosphere:
+    bottomRadius: 6378137
+    thickness: 100000
+    rayleighScattering: {x: 0.000005802, y: 0.000013558, z: 0.0000331}
+    rayleighScaleHeight: 8000
+    mieScattering: 0.000003996
+    mieAbsorption: 0.000000444
+    mieScaleHeight: 1200
+    mieAnisotropy: 0.8
+    ozoneAbsorption: {x: 0.00000065, y: 0.000001881, z: 0.000000085}
+    ozoneCenterHeight: 25000
+    ozoneHalfWidth: 15000
+    hazeExtinction: 0
+    hazeAlbedo: 0.9
+    hazeAnisotropy: 0.65
+    hazeTopHeight: 1500
+    hazeTransition: 600
+    groundAlbedo: {r: 0.1, g: 0.1, b: 0.1, a: 1}
+  sunMoon:
+    sunIntensity: 3
+    moonIntensity: 0.03
+    moonTint: {r: 0.72, g: 0.82, b: 1, a: 1}
+    handoffElevation: -6
+    handoffFade: 3
+    moonShadowStrength: 0.8
+  sky:
+    sunDiskScale: 1
+    sunLimbDarkening: 0.6
+    sunDiskMaxRadiance: 30000
+    moonDiskScale: 1
+    moonEarthshine: 0.004
+    stars: 1
+    starBrightness: 0.3
+    starDensity: 0.04
+    starFadeLuminance: 0.05
+    starContrast: 0.15
+    starTwinkle: 0.3
+    nightSkyRadiance: {r: 0.0006, g: 0.0009, b: 0.0018, a: 1}
+  fog:
+    aerialPerspective: 1
+    hazeAlbedo: 0.9
+    hazeAnisotropy: 0.65
+    hazeTransition: 600
+    rebuildFraction: 0.03
+  ambient:
+    intensity: 1
+    blendSeconds: 0.75
+    reflectionIntensity: 1
+  exposure:
+    useMeter: 1
+    key: 0.18
+    nightKey: 0.05
+    dayLog2Luminance: -5
+    nightLog2Luminance: -10
+    compensation: 0
+    cockpitBias: -0.7
+    externalBias: 0
+    minExposure: -4
+    maxExposure: 7
+    brightenSpeed: 3
+    darkenSpeed: 1
+    centerWeight: 0.6

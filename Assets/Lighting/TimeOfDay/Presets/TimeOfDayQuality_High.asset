@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2c0af367eab3aa441b9734b34e015da7, type: 3}
+  m_Name: TimeOfDayQuality_High
+  m_EditorClassIdentifier: CirrusFS.TimeOfDay::CirrusFS.TimeOfDay.TimeOfDayQuality
+  tier: 2
+  shadowType: 2
+  shadowDistance: 6000
+  shadowCascades: 2
+  cascadeSplit: 0.06
+  shadowResolution: 4096
+  gradingLutSize: 64
+  useComputeShaders: 1
+  skyViewLutSize: {x: 256, y: 144}
+  skyViewSamples: {x: 24, y: 40}
+  skyViewUpdateDegrees: 0.05
+  skyViewUpdateHeight: 0.005
+  skyViewBlendSeconds: 0
+  moonlitSky: 1
+  baseLutRebuildFrames: 4
+  aerialLutSize: {x: 48, y: 48, z: 64}
+  aerialSamples: 4
+  moonlitAerial: 1
+  reflectionCubeSize: 128
+  sceneReflectionProbe: 1
+  sceneProbeResolution: 128
+  sceneProbeCullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  sceneProbeUpdateDegrees: 0.5
+  sceneProbeUpdateMeters: 2000
+  sceneProbeMinInterval: 1

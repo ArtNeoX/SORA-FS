@@ -1,5 +1,21 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
+--- !u!114 &-2439708830818246142
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: db166aa58faec344393328201f4e0916, type: 3}
+  m_Name: TimeOfDay
+  m_EditorClassIdentifier: CirrusFS.TimeOfDay::CirrusFS.TimeOfDay.AerialPerspectiveFeature
+  m_Active: 1
+  aerialPerspectiveShader: {fileID: 4800000, guid: 99ecae3ecd3520244912f3d4678ec726, type: 3}
+  exposureMeterShader: {fileID: 4800000, guid: 779789d723600dc4e9661404a350802f, type: 3}
+  passEvent: 400
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -24,8 +40,9 @@ MonoBehaviour:
     probeSamplingDebugMesh: {fileID: 0}
     probeSamplingDebugTexture: {fileID: 0}
     probeVolumeBlendStatesCS: {fileID: 0}
-  m_RendererFeatures: []
-  m_RendererFeatureMap: 
+  m_RendererFeatures:
+  - {fileID: -2439708830818246142}
+  m_RendererFeatureMap: 02e2b197be6924de
   m_UseNativeRenderPass: 0
   xrSystemData: {fileID: 0}
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
@@ -49,7 +66,7 @@ MonoBehaviour:
   m_ShadowTransparentReceive: 1
   m_RenderingMode: 0
   m_DepthPrimingMode: 0
-  m_CopyDepthMode: 1
+  m_CopyDepthMode: 0
   m_DepthAttachmentFormat: 0
   m_DepthTextureFormat: 0
   m_AccurateGbufferNormals: 0

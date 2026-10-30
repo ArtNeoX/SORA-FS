@@ -142,6 +142,9 @@ namespace CirrusFS.Flight
             ReadToggle();
 
             bool cockpit = Mode == ViewMode.Cockpit && resolvedCockpitView != null;
+            // Exposure meters a dark panel differently from the outside; tell it which view this is.
+            var exposure = CirrusFS.TimeOfDay.ExposureController.Active;
+            if (exposure != null) exposure.inCockpit = cockpit;
             ReadZoom(cockpit);
             if (!cockpit) ReadDistanceKeys();
 

@@ -27,6 +27,7 @@ Shader "CirrusFS/GlassDisplayScreen"
             sampler2D _MainTex;
             float _Brightness;
             float4 _OffColor;
+            float4 _TOD_Exposure;   // time-of-day pre-exposure (x); 0 when the system is absent
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -41,7 +42,11 @@ Shader "CirrusFS/GlassDisplayScreen"
 
             float4 frag(v2f i) : SV_Target
             {
-                return float4(tex2D(_MainTex, i.uv).rgb * _Brightness + _OffColor.rgb, 1);
+                // Brightness is in scene light units; the camera target is pre-exposed. Like real
+                // avionics with a photocell, the display dims as the eye adapts to the dark: it never
+                // shows brighter on screen than it does in daylight.
+                float exposure = min(_TOD_Exposure.x > 0.0 ? _TOD_Exposure.x : 1.0, 1.0);
+                return float4((tex2D(_MainTex, i.uv).rgb * _Brightness + _OffColor.rgb) * exposure, 1);
             }
             ENDCG
         }

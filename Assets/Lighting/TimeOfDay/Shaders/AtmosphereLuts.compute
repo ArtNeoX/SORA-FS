@@ -1,0 +1,82 @@
+// Atmosphere LUT generation, compute path. One thread per texel; the integrators live in
+// AtmosphereIntegrate.hlsl and are shared with the fragment fallback
+// (AtmosphereLutsFragment.shader), so both paths write identical textures.
+
+#pragma kernel Transmittance
+#pragma kernel MultiScattering
+#pragma kernel SkyView
+#pragma kernel AerialPerspective
+
+#include "AtmosphereIntegrate.hlsl"
+
+RWTexture2D<float4> _TOD_Output;
+float4 _TOD_OutputSize; // xy: size, z: first row (MultiScattering slices)
+
+[numthreads(8, 8, 1)]
+void Transmittance(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_TOD_OutputSize.xy)) return;
+    _TOD_Output[id.xy] = TodTransmittanceTexel((id.xy + 0.5) / _TOD_OutputSize.xy);
+}
+
+// One group per texel, one thread per integration direction, summed in shared memory
+// (Hillaire 2020's layout). A thread-per-texel loop over 64 directions leaves most of the
+// GPU idle on a 32x32 texture: 2.0 ms on an RTX 3050 Laptop, against 0.66 ms this way.
+groupshared float3 gsLuminance[TOD_MULTISCAT_DIRECTIONS];
+groupshared float3 gsFms[TOD_MULTISCAT_DIRECTIONS];
+
+// _TOD_OutputSize.z is a row offset: a weather change rebuilds this LUT a few rows per frame
+// (AtmosphereRenderer time-slices it) instead of in one hitch.
+[numthreads(1, 1, TOD_MULTISCAT_DIRECTIONS)]
+void MultiScattering(uint3 groupId : SV_GroupID, uint3 thread : SV_GroupThreadID)
+{
+    uint2 group = uint2(groupId.x, groupId.y + (uint)_TOD_OutputSize.z);
+    float2 uv = (group + 0.5) / _TOD_OutputSize.xy;
+    uint k = thread.z;
+
+    float3 l, f;
+    TodMultiScatDirection(uv, k, l, f);
+    gsLuminance[k] = l;
+    gsFms[k] = f;
+    GroupMemoryBarrierWithGroupSync();
+
+    [unroll] for (uint stride = TOD_MULTISCAT_DIRECTIONS / 2; stride > 0; stride >>= 1)
+    {
+        if (k < stride)
+        {
+            gsLuminance[k] += gsLuminance[k + stride];
+            gsFms[k] += gsFms[k + stride];
+        }
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    if (k == 0) _TOD_Output[group] = TodMultiScatResolve(gsLuminance[0], gsFms[0]);
+}
+
+RWTexture3D<float4> _TOD_Output3D;
+
+// One thread per column (view direction): march outward once, writing each slice in passing.
+[numthreads(8, 8, 1)]
+void AerialPerspective(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_TOD_AerialSize.xy)) return;
+    float2 uv = (id.xy + 0.5) / _TOD_AerialSize.xy;
+    float2 unit = float2(TodSubUvToUnit(uv.x, _TOD_AerialSize.x), TodSubUvToUnit(uv.y, _TOD_AerialSize.y));
+
+    TodAerialRay ray = TodAerialBegin(unit);
+    int steps = max(1, (int)_TOD_AerialSamples.x);
+    int slices = (int)_TOD_AerialSize.z;
+    _TOD_Output3D[uint3(id.xy, 0)] = TodAerialOutput(ray);
+    [loop] for (int k = 1; k < slices; k++)
+    {
+        TodAerialAdvance(ray, TodAerialSliceDistance(ray, k), steps);
+        _TOD_Output3D[uint3(id.xy, k)] = TodAerialOutput(ray);
+    }
+}
+
+[numthreads(8, 8, 1)]
+void SkyView(uint3 id : SV_DispatchThreadID)
+{
+    if (any(id.xy >= (uint2)_TOD_OutputSize.xy)) return;
+    _TOD_Output[id.xy] = TodSkyViewTexel((id.xy + 0.5) / _TOD_OutputSize.xy);
+}

@@ -2,6 +2,8 @@
   <Project Path="Assembly-CSharp.csproj" />
   <Project Path="CirrusFS.Geo.Tests.csproj" />
   <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="CirrusFS.TimeOfDay.Tests.csproj" />
+  <Project Path="CirrusFS.TimeOfDay.csproj" />
   <Project Path="VolumetricCloudsURP.csproj" />
   <Project Path="CirrusFS.Geo.csproj" />
   <Project Path="VolumetricCloudsURP.Editor.csproj" />
