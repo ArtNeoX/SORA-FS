@@ -5,7 +5,7 @@ using UnityEngine;
 namespace CirrusFS.Geo.Tests
 {
     /// Exercises GeoOrigin the way the game does: float Unity state carried frame to frame,
-    /// re-centred on the camera every 5 km, checked against a double-precision truth.
+    /// re-centred on the camera every 1 km, checked against a double-precision truth.
     public class FloatingOriginTests
     {
         [TearDown]
@@ -68,7 +68,7 @@ namespace CirrusFS.Geo.Tests
             const double lat0 = 37.09, lon0 = 127.03, alt = 3000.0;
             const double speed = 250.0, dt = 1.0 / 60.0, distance = 500000.0;
             const double headingDeg = 60.0;
-            const float threshold = 5000f;
+            const float threshold = 1000f;
 
             // Truth, in double: fly along the local forward, holding altitude and wings level.
             Double3 truthPos = GeoMath.GeodeticToEcef(lat0, lon0, alt);
@@ -133,7 +133,7 @@ namespace CirrusFS.Geo.Tests
                                   $"worst frame-to-frame jump {worstJump * 1000.0:F3} mm, worst tilt {worstTilt:F5} deg, " +
                                   $"worst camera up {worstCameraUp:F5} deg");
 
-            Assert.Greater(recentres, 90, "about one re-centre per 5 km");
+            Assert.Greater(recentres, 450, "about one re-centre per km");
             Assert.Less(worstJump, 0.001, "jitter: per-frame error jumped by a millimetre or more");
             Assert.Less(worstError, 1.0, "drift: float integration lost more than a metre over 500 km");
             Assert.Less(worstTilt, 0.01f, "horizon: attitude drifted off level through re-centres");

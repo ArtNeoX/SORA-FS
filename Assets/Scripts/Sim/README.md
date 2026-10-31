@@ -13,7 +13,7 @@ Data/
   SpawnPoint.cs           lat / lon / ellipsoid altitude / true heading / speed
 World/
   FlightSpawner.cs        resets GeoOrigin onto the spawn point, places the aircraft
-  FloatingOriginManager.cs  re-centres on the camera past 5 km: moves AND re-rotates the frame
+  FloatingOriginManager.cs  re-centres on the camera past 1 km: moves AND re-rotates the frame
   FloatingOriginIgnore.cs marker for roots the manager must not carry (UI, self-placing objects)
   FlightSessionController.cs  menu <-> flight glue (camera, HUD, water patch, debug window)
   VolumetricCloudsOrigin.cs   keeps cloud noise still through re-centres
@@ -29,7 +29,7 @@ UI/
 - **MenuCanvas** — `StartMenuController`: the aircraft grid with its search box, and the
   **StartPanel** with latitude, longitude, altitude (m above the WGS84 ellipsoid) and heading
   fields. Defaults are 37.09 N, 127.03 E, 3000 m, heading 0.
-- **SimManagers** — `FlightSpawner`, `FloatingOriginManager` (tracks `Main Camera`, 5 km),
+- **SimManagers** — `FlightSpawner`, `FloatingOriginManager` (tracks `Main Camera`, 1 km),
   `FlightSessionController`, `GeoDebugWindow` (F1).
 - **Ocean** — `OceanSphere`, the h = 0 ellipsoid as an LOD quadtree.
 - **WaterContact** — `WaterSurfaceCollider`, a 1.2 km collision patch of the sea that follows
@@ -49,7 +49,7 @@ the gear up; at or below 50 m the aircraft starts at rest on the water.
 ## Floating origin
 
 `FloatingOriginManager.LateUpdate` runs after the camera rig. When the camera is more than
-`thresholdMetres` (5 km) from Unity (0,0,0) it calls `GeoOrigin.Recenter` with the camera's
+`thresholdMetres` (1 km) from Unity (0,0,0) it calls `GeoOrigin.Recenter` with the camera's
 ECEF position, which also re-aligns Unity's axes to the local east/up/north there, and carries
 every scene root through the resulting `GeoFrameChange`. Rigidbodies keep their physics pose,
 velocity and angular velocity (rotated into the new axes); interpolation is paused for one step.

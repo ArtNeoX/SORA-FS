@@ -3027,7 +3027,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.FloatingOriginManager
   trackedCamera: {fileID: 247095125}
   trackedAircraft: {fileID: 0}
-  thresholdMetres: 5000
+  thresholdMetres: 1000
   autoCollectSceneRoots: 1
   clearTrailsOnShift: 1
   logShifts: 1

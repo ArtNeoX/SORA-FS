@@ -65,7 +65,7 @@ forward and up axes, then rebuild the rotation with `LookRotation`.
 
 ## 3. Re-centring (`Sim/World/FloatingOriginManager.cs`)
 
-When the **camera** gets more than 5 km from Unity `(0,0,0)`, `GeoOrigin.Recenter` does two
+When the **camera** gets more than 1 km from Unity `(0,0,0)`, `GeoOrigin.Recenter` does two
 things:
 
 1. It moves the origin to the camera's ECEF position.
@@ -149,9 +149,10 @@ off on the aircraft.
 - ENU basis is orthonormal and right-handed. Heading/pitch/roll round-trips, and the sign
   conventions hold.
 - 500 km of straight, level flight at 60 fps with the camera 300 m behind, re-centring on the
-  camera every 5 km (99 re-centres). Results:
-  - The largest frame-to-frame position jump is 0.25 mm, so there is no jitter.
-  - Attitude stays level to 1e-5°.
+  camera every 1 km (499 re-centres). Results:
+  - The largest frame-to-frame position jump is 0.07 mm, so there is no jitter.
+  - Attitude stays level to better than 1e-5°.
   - Unity +Y is local up after every re-centre.
-  - Total float-integration drift is about 0.26 m over 500 km. That is the cost of PhysX
-    integrating in float near the origin, not of the re-centring.
+  - Total float-integration drift is about 23 mm over 500 km. That is the cost of PhysX
+    integrating in float near the origin, not of the re-centring; the smaller 1 km threshold
+    keeps positions smaller and cut it tenfold from the 26 cm a 5 km threshold gave.

@@ -14,9 +14,9 @@ namespace CirrusFS.Flight
     ///              local horizon frame at the aircraft (not Unity's axes, which turn with every
     ///              floating-origin re-centre), so the view holds still over the globe.
     ///              "+" / "-" (and the numpad keys) multiply / divide the distance by
-    ///              `zoomStep`, from `minDistance` out to `maxDistance`. Past a few hundred
-    ///              kilometres the aim drifts from the aircraft to the Earth's centre, so at
-    ///              full distance the whole globe sits in the middle of the frame.
+    ///              `zoomStep`, from `minDistance` out to `maxDistance`. Only the distance
+    ///              changes: the camera slides straight along its line to the aircraft and
+    ///              keeps looking at it at every range.
     ///
     /// Cockpit is the default. The two modes keep their own FOV and near clip, so switching
     /// back and forth does not carry one view's zoom into the other.
@@ -52,10 +52,6 @@ namespace CirrusFS.Flight
         public float minDistance = 10f;
         [Tooltip("50,000 km: far enough to see the whole Earth.")]
         public float maxDistance = 5.0e7f;
-        [Tooltip("Distance at which the aim starts moving from the aircraft to the Earth's centre, m.")]
-        public float globeAimStart = 2.0e5f;
-        [Tooltip("Distance by which the aim is fully on the Earth's centre, m.")]
-        public float globeAimEnd = 2.0e7f;
 
         [Header("Orbit")]
         public float orbitSensitivity = 0.2f;
@@ -311,18 +307,6 @@ namespace CirrusFS.Flight
             Quaternion horizon = GeoOrigin.EnuRotationAt(focus);
             Quaternion rot = horizon * Quaternion.Euler(orbitPitch, orbitYaw, 0f);
             Vector3 position = focus + rot * new Vector3(0f, 0f, -distance);
-
-            // Far out, aim progressively at the Earth's centre so the globe is framed whole.
-            float aimT = Mathf.InverseLerp(Mathf.Log(globeAimStart), Mathf.Log(globeAimEnd),
-                                           Mathf.Log(Mathf.Max(distance, 1f)));
-            aimT = aimT * aimT * (3f - 2f * aimT);
-            if (aimT > 0f)
-            {
-                Vector3 toFocus = (focus - position).normalized;
-                Vector3 toCentre = (GeoOrigin.EcefToUnity(Double3.Zero) - position).normalized;
-                Vector3 aim = Vector3.Slerp(toFocus, toCentre, aimT);
-                rot = Quaternion.LookRotation(aim, horizon * Vector3.up);
-            }
 
             transform.SetPositionAndRotation(position, rot);
         }

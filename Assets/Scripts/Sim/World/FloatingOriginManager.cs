@@ -44,7 +44,7 @@ namespace CirrusFS.Sim
         public Transform trackedAircraft;
 
         [Tooltip("Distance of the camera from Unity (0,0,0) that triggers a re-centre, metres.")]
-        public float thresholdMetres = 5000f;
+        public float thresholdMetres = 1000f;
 
         [Header("Behaviour")]
         [Tooltip("Carry every root object in the scene except those marked FloatingOriginIgnore.")]

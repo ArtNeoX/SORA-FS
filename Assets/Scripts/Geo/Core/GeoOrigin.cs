@@ -139,7 +139,7 @@ namespace CirrusFS.Geo
         public static Double3 UnityDirToEcef(Vector3 dir) => East * dir.x + Up * dir.y + North * dir.z;
 
         /// Geodetic up at a Unity point, as a Unity direction. Equals Vector3.up at the origin
-        /// and tilts away from it with distance (about 0.045 deg at 5 km).
+        /// and tilts away from it with distance (about 0.009 deg at 1 km).
         public static Vector3 UpAt(Vector3 unity)
         {
             GeoMath.EnuBasisAt(UnityToEcef(unity), out _, out _, out Double3 up);

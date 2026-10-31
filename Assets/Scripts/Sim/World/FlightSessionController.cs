@@ -103,7 +103,7 @@ namespace CirrusFS.Sim
             }
 
             if (floatingOrigin != null) floatingOrigin.SetTrackedAircraft(spawned.transform);
-            else Debug.LogWarning("[FlightSession] No FloatingOriginManager: precision will degrade past 5 km.");
+            else Debug.LogWarning("[FlightSession] No FloatingOriginManager: precision will degrade past a few km.");
 
             if (chaseCamera != null) chaseCamera.target = spawned.transform;
             if (waterContact != null) waterContact.target = spawned.transform;
