@@ -73,3 +73,10 @@ crashlytics-build.properties
 # Temporary auto-generated Android Assets
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Terrain tiles from SceneryDataGen/terrain_exporter_v2 (large binary data)
+/TerrainData/
+
+# Python tool caches and IDE folders under SceneryDataGen
+__pycache__/
+/SceneryDataGen/**/.idea/

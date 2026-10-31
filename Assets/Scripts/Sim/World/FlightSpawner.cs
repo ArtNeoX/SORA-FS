@@ -22,8 +22,8 @@ namespace CirrusFS.Sim
                  "which the floating origin needs to carry it.")]
         public Transform aircraftParent;
 
-        [Tooltip("Below this height above the ellipsoid the aircraft spawns at rest on the water " +
-                 "instead of flying, metres.")]
+        [Tooltip("At or below this height above the ground (terrain, or the sea where there is no " +
+                 "terrain tile) the aircraft spawns at rest on the surface instead of flying, metres.")]
         public float airborneAbove = 50f;
 
         [Tooltip("Throttle set for an airborne spawn, 0..1, so it does not start by decelerating.")]
@@ -57,8 +57,15 @@ namespace CirrusFS.Sim
             GameObject instance = Resolve(aircraft.Data);
             if (instance == null) return null;
 
-            bool airborne = spawn.altitude > airborneAbove;
-            double height = airborne ? spawn.altitude : Math.Max(spawn.altitude, aircraft.Data.SpawnHeight);
+            // The surface under the spawn point: terrain where a tile exists, never below the sea.
+            float terrain = 0f;
+            bool hasTerrain = GlobeTerrain.Active != null &&
+                              GlobeTerrain.Active.TryGetHeight(spawn.latitude, spawn.longitude, out terrain);
+            double ground = Math.Max(0.0, terrain);
+            bool onLand = hasTerrain && terrain > 0f;
+
+            bool airborne = spawn.altitude > ground + airborneAbove;
+            double height = airborne ? spawn.altitude : Math.Max(spawn.altitude, ground + aircraft.Data.SpawnHeight);
 
             // The origin goes exactly where the aircraft will be: Unity (0,0,0), local axes.
             Double3 ecef = GeoMath.GeodeticToEcef(spawn.latitude, spawn.longitude, height);
@@ -93,7 +100,7 @@ namespace CirrusFS.Sim
             CurrentSpawn = spawn;
 
             Debug.Log($"[FlightSpawner] {aircraft.Data.DisplayName} at {spawn} " +
-                      $"({(airborne ? $"airborne, {spawn.speedKnots:F0} kt" : "on the water")}). " +
+                      $"({(airborne ? $"airborne, {spawn.speedKnots:F0} kt" : onLand ? $"on the ground at {ground:F0} m" : "on the water")}). " +
                       $"{GeoOrigin.Describe()}");
 
             onAircraftSpawned.Invoke(instance);

@@ -122,22 +122,86 @@ off on the aircraft.
   - Shading combines Fresnel against sky reflection, a sun glint, and haze whose path length
     shrinks above the atmosphere.
 
-## 5. Checklist for terrain tiles (DSF-style)
+## 5. Terrain tiles (DSF-style)
 
-1. Read the tile's vertices as lat/lon/h (ellipsoid height, see §1).
-2. Pick a tile centre. Convert it with `GeoMath.GeodeticToEcef` and keep it as `Double3`.
-3. Get the local frame at the centre with `GeoMath.EnuBasis`. For each vertex, compute
-   `ecef − centre` in **double**, project it onto (E, U, N), and only then cast to float.
-   `OceanSphere.Build` is a working example.
-4. Place the tile's GameObject with `position = GeoOrigin.EcefToUnity(centre)` and
-   `rotation = LookRotation(EcefDirToUnity(N), EcefDirToUnity(U))`.
-5. Mark the tile's root `FloatingOriginIgnore`, subscribe to `GeoOrigin.Recentered` and
-   `OriginReset`, and redo step 4 on each. Don't let the manager carry it as a plain
-   transform.
-6. Keep tiles small enough that `radius × 1.2e-7` stays under a millimetre near the camera.
-   Split them like the ocean does.
-7. Colliders work as-is. The gear raycasts toward `-GeoOrigin.UpAt(point)`, which is
-   `Vector3.down` near the origin.
+Terrain comes from `SceneryDataGen/terrain_exporter_v2`. Its README covers the workflow
+and the file format. The exporter writes 1° × 1° tiles named like X-Plane's (`+37+127`)
+into `<project>/TerrainData`, which git ignores.
+
+**Data (`Core/Terrain/TerrainDataSet.cs`).**
+- Reads `manifest.json` from each folder in `GlobeTerrain.dataFolders`. Earlier folders
+  win, so a fine regional folder can sit in front of a coarse world folder.
+- Tile files are memory-mapped and opened on first use, so an open tile costs page cache,
+  not managed memory. Idle tiles are closed again.
+- `SampleHeight` is the tile's bilinear surface. `ClassAt` returns the class cell.
+
+**Mesh (`Core/Terrain/TerrainChunkBuilder.cs`).** Each tile is a quadtree. Level L is a
+grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
+- Vertex positions come from integers: `lat = (tileLat·K + y·R + j) / K`, with K = 2^L·R.
+  A shared vertex therefore gets the same double in both chunks, and in both tiles.
+- Each vertex goes through `GeoMath` in double and is stored relative to the chunk centre
+  in the chunk's E/U/N frame, exactly as ocean chunks are (§4).
+- Normals use central differences in the vertex's own ENU frame. Across a tile edge they
+  read the neighbouring tile.
+- Skirts cover cracks between chunks of different levels.
+- Each chunk carries a (64+2)² texture of class IDs. The extra one-texel border comes
+  from the neighbours.
+
+**Streaming (`World/Terrain/GlobeTerrain.cs`).**
+- A chunk splits while its vertex spacing, seen from the camera, exceeds `maxVertexAngle`
+  (about 4 px). It stops at the tile's data resolution.
+- Tiles and chunks behind the horizon are skipped. The horizon test allows for each
+  chunk's own height.
+- Chunks are placed through `GeoOrigin` and re-placed on `Recentered`/`OriginReset`. The
+  root carries `FloatingOriginIgnore`.
+- `GlobeTerrain.Active.TryGetHeight(lat, lon)` answers ground-height queries. The spawner
+  uses it to put a low spawn on the ground; the F1 window uses it to show AGL.
+
+**Shader (`World/Terrain/Terrain.shader`).**
+- It blends the colours of the four nearest class cells (palette from the manifest) with a
+  noise-warped lookup, so land types fade into each other.
+- Detail noise is anchored to the Earth on a Mercator grid (conformal, so nothing is
+  sheared), wrapped per chunk in double.
+- Steep slopes turn to rock.
+- Lighting is the main light plus SH ambient. Haze comes from the time-of-day fog pass.
+
+**Ground textures (`World/Terrain/TerrainClassTextures.cs`).** Optional tiling albedo per
+land class. The asset is `Assets/Textures/Terrain/TerrainClassTextures.asset`, assigned to
+`GlobeTerrain.classTextures`. Edits apply live in play mode.
+- Each entry names a class from the manifest (case-insensitive) and sets a texture, its
+  ground size in metres, a tint and a strength.
+- **Colour from: Class colour** keeps the exporter's colour and adds only the texture's
+  light and dark pattern (texture ÷ its own average). From far away the ground is exactly
+  the class colour. **Texture** uses the texture's own colours.
+- `steepSlopes` textures the rock band on steep ground.
+- Textures are packed at run time into one sRGB `Texture2DArray`, so any size or format
+  works. They're laid on the detail grid with a whole number of repeats per 4096 m, so they
+  stay seamless across chunks. The size is exact at `referenceLatitude` and scales with
+  cos(ref)/cos(lat) elsewhere. Sizes above about 3 km all become one repeat per 4096 m.
+- Each blended cell is textured before the blend, so textures fade into each other like the
+  colours do. A second, five-times-larger, transposed lookup is mixed in by noise to hide
+  repetition (material: **Anti-tiling mix**).
+- Starter textures come from `SceneryDataGen/ground_textures/make_ground_textures.py`.
+  They're procedural placeholders; replace them with real seamless textures.
+
+**Collision (`World/Terrain/TerrainCollision.cs`).**
+- It builds MeshColliders for the 3 × 3 finest-level chunks under the aircraft, from the
+  same builder, so the gear touches the drawn surface. This doesn't depend on the render
+  LOD.
+- Over the sea, the terrain sits at −5 m, under the h = 0 water patch, whose hit is
+  nearer.
+- The gear raycasts toward `-GeoOrigin.UpAt(point)`.
+
+**Heights** are the exporter's (Copernicus EGM2008, about mean sea level), used as
+ellipsoid heights, the same assumption as the h = 0 ocean (§1).
+
+**Known limits.**
+- Every visible tile draws at least one chunk, so a whole-world data set seen from orbit
+  would need a coarser tile level above 1°.
+- Class textures at coarse levels are point-sampled.
+- Ground textures have a seam along the antimeridian (180°), where the detail grid wraps.
+- The softest class blend is about one class cell wide (~30 m at 3600 cells/°).
+- Chunks are built on the main thread, about 3 ms each, within a 4 ms budget per frame.
 
 ## Tests
 

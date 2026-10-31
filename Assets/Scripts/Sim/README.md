@@ -34,6 +34,9 @@ UI/
 - **Ocean** — `OceanSphere`, the h = 0 ellipsoid as an LOD quadtree.
 - **WaterContact** — `WaterSurfaceCollider`, a 1.2 km collision patch of the sea that follows
   the aircraft so the gear has something to touch.
+- **Terrain** — `GlobeTerrain`: streams the exporter's 1° tiles from `<project>/TerrainData`
+  as LOD chunks on the globe (see `Geo/README.md` §5).
+- **TerrainContact** — `TerrainCollision`: full-resolution ground colliders under the aircraft.
 - **Main Camera** — `AircraftCamera` (V toggles cockpit / external; in external, + / - zoom
   from 10 m to 50,000 km) and `GeoCameraRange` (far plane from altitude).
 - **Directional Light** — `GeoSky`: the sun is fixed in ECEF, the sky fades to black with
@@ -41,10 +44,11 @@ UI/
 - **A320CEO** — the aircraft, with `GeoBody` (ECEF position in double, gravity toward the
   Earth's centre; Unity gravity off).
 - `FloatingOriginIgnore` sits on the canvases, the EventSystem, SimManagers, the camera (which
-  the manager carries explicitly), Ocean and WaterContact.
+  the manager carries explicitly), Ocean, WaterContact, Terrain and TerrainContact.
 
-There is no scenery: everything is ocean. A spawn above 50 m starts in flight at 250 kt with
-the gear up; at or below 50 m the aircraft starts at rest on the water.
+Where no terrain tile has been exported, everything is ocean. A spawn more than 50 m above the
+ground (terrain height where there is a tile, else the sea) starts in flight at 250 kt with the
+gear up; otherwise the aircraft starts at rest on the ground or the water.
 
 ## Floating origin
 

@@ -36,6 +36,9 @@ namespace CirrusFS.Sim
         [Tooltip("Sea-surface collision patch that follows the aircraft. Found automatically.")]
         public WaterSurfaceCollider waterContact;
 
+        [Tooltip("Terrain collision that follows the aircraft. Found automatically.")]
+        public TerrainCollision terrainContact;
+
         [Tooltip("F1 globe debug window. Found automatically.")]
         public GeoDebugWindow debugWindow;
 
@@ -58,6 +61,7 @@ namespace CirrusFS.Sim
             if (spawner == null) spawner = FindFirstObjectByType<FlightSpawner>();
             if (floatingOrigin == null) floatingOrigin = FindFirstObjectByType<FloatingOriginManager>();
             if (waterContact == null) waterContact = FindFirstObjectByType<WaterSurfaceCollider>();
+            if (terrainContact == null) terrainContact = FindFirstObjectByType<TerrainCollision>();
             if (debugWindow == null) debugWindow = FindFirstObjectByType<GeoDebugWindow>();
         }
 
@@ -107,6 +111,7 @@ namespace CirrusFS.Sim
 
             if (chaseCamera != null) chaseCamera.target = spawned.transform;
             if (waterContact != null) waterContact.target = spawned.transform;
+            if (terrainContact != null) terrainContact.target = spawned.transform;
             if (debugWindow != null) debugWindow.target = spawned.transform;
 
             if (hud != null)
@@ -144,6 +149,7 @@ namespace CirrusFS.Sim
             if (hud != null) hud.aircraft = null;
             if (chaseCamera != null) chaseCamera.target = null;
             if (waterContact != null) waterContact.target = null;
+            if (terrainContact != null) terrainContact.target = null;
             if (debugWindow != null) debugWindow.target = null;
 
             if (hudRoot != null) hudRoot.SetActive(false);

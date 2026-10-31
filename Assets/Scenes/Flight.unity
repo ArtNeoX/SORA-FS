@@ -1166,7 +1166,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_SizeDelta: {x: 0, y: 12}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &209378595
 MonoBehaviour:
@@ -1540,8 +1540,6 @@ MonoBehaviour:
   zoomStep: 1.5
   minDistance: 10
   maxDistance: 50000000
-  globeAimStart: 200000
-  globeAimEnd: 20000000
   orbitSensitivity: 0.2
   minPitch: -85
   maxPitch: 85
@@ -3010,6 +3008,7 @@ MonoBehaviour:
   chaseCamera: {fileID: 0}
   hud: {fileID: 0}
   waterContact: {fileID: 628270504}
+  terrainContact: {fileID: 0}
   debugWindow: {fileID: 472734113}
   escapeReturnsToMenu: 1
   lockCursorInFlight: 0
@@ -4092,6 +4091,79 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 800714488}
   m_CullTransparentMesh: 1
+--- !u!1 &809084409
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 809084412}
+  - component: {fileID: 809084411}
+  - component: {fileID: 809084410}
+  m_Layer: 0
+  m_Name: Terrain
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &809084410
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809084409}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 98d78e41b8fc78d4090ffa452280cee1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.FloatingOriginIgnore
+--- !u!114 &809084411
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809084409}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 156468fe3615d7d42b85cd26109f45ee, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Geo.GlobeTerrain
+  dataFolders:
+  - TerrainData
+  material: {fileID: 2100000, guid: 86bc81b990fe2e34685865fcf64621ed, type: 2}
+  viewCamera: {fileID: 0}
+  resolution: 64
+  classTexels: 128
+  maxVertexAngle: 0.006
+  maxLevel: 8
+  buildBudgetPerFrame: 6
+  buildBudgetMs: 4
+  immediateRadius: 150000
+  cacheSize: 1500
+  keepTilesOpen: 16
+  castShadows: 1
+  receiveShadows: 1
+  classTextures: {fileID: 11400000, guid: 072c6de775c72df45b159bfc7ab25364, type: 2}
+--- !u!4 &809084412
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 809084409}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &820598906
 GameObject:
   m_ObjectHideFlags: 0
@@ -4317,19 +4389,19 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 533400123408416859, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 0.7707896
+      value: 0.7768824
       objectReference: {fileID: 0}
     - target: {fileID: 533400123408416859, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_LocalRotation.x
-      value: 0.61659455
+      value: 0.6270791
       objectReference: {fileID: 0}
     - target: {fileID: 533400123408416859, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_LocalRotation.y
-      value: 0.12517223
+      value: 0.044193022
       objectReference: {fileID: 0}
     - target: {fileID: 533400123408416859, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_LocalRotation.z
-      value: -0.10013205
+      value: -0.035671566
       objectReference: {fileID: 0}
     - target: {fileID: 2080052212719900171, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Color.b
@@ -4405,11 +4477,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Color.b
-      value: 0.90959
+      value: 0.90975666
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Color.g
-      value: 0.9643766
+      value: 0.964444
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Color.r
@@ -4421,7 +4493,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Intensity
-      value: 0.9941132
+      value: 0.99218106
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Shadows.m_Type
@@ -4509,7 +4581,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8600923384155745327, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: hours
-      value: 12
+      value: 11.81
       objectReference: {fileID: 0}
     - target: {fileID: 8782657269309333380, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Name
@@ -4546,6 +4618,67 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 98d78e41b8fc78d4090ffa452280cee1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.FloatingOriginIgnore
+--- !u!1 &969973637
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 969973640}
+  - component: {fileID: 969973639}
+  - component: {fileID: 969973638}
+  m_Layer: 0
+  m_Name: TerrainContact
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &969973638
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 969973637}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 98d78e41b8fc78d4090ffa452280cee1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.FloatingOriginIgnore
+--- !u!114 &969973639
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 969973637}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6fa4c6a9b409f9d479782caa5ecafcb2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Geo.TerrainCollision
+  target: {fileID: 0}
+  terrain: {fileID: 0}
+  activeBelowHeightAboveGround: 1500
+  surfaceMaterial: {fileID: 0}
+--- !u!4 &969973640
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 969973637}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &974929867
 GameObject:
   m_ObjectHideFlags: 0
@@ -8416,4 +8549,6 @@ SceneRoots:
   - {fileID: 1888492751}
   - {fileID: 472734112}
   - {fileID: 1661212307}
+  - {fileID: 809084412}
+  - {fileID: 969973640}
   - {fileID: 628270505}

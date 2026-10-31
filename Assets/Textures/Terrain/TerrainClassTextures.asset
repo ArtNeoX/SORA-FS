@@ -1,0 +1,72 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef63193f8a61dc144934d31b3fa22da2, type: 3}
+  m_Name: TerrainClassTextures
+  m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Geo.TerrainClassTextures
+  textureSize: 512
+  referenceLatitude: 76.7
+  classes:
+  - className: Grass
+    albedo: {fileID: 2800000, guid: 89b41dc2c4768df498e78ed8298eef82, type: 3}
+    sizeMetres: 24
+    colourFrom: 0
+    tint: {r: 0.7264151, g: 0.7264151, b: 0.7264151, a: 1}
+    strength: 1
+  - className: Forest
+    albedo: {fileID: 2800000, guid: a3e186fee7e6a7c4f87e356acf4ed030, type: 3}
+    sizeMetres: 48
+    colourFrom: 0
+    tint: {r: 0.8962264, g: 0.8962264, b: 0.8962264, a: 1}
+    strength: 1
+  - className: Conifer forest
+    albedo: {fileID: 2800000, guid: e701f79dc17dd6a418e82ebda31c9549, type: 3}
+    sizeMetres: 32
+    colourFrom: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    strength: 1
+  - className: Shrub
+    albedo: {fileID: 2800000, guid: aa6094f33f7973944bcb7288af677781, type: 3}
+    sizeMetres: 40
+    colourFrom: 0
+    tint: {r: 0.9433962, g: 0.9433962, b: 0.9433962, a: 1}
+    strength: 1
+  - className: Cropland
+    albedo: {fileID: 2800000, guid: 67a9154d674d60d4c9a9fb14a7d92f21, type: 3}
+    sizeMetres: 64
+    colourFrom: 0
+    tint: {r: 0.8301887, g: 0.8301887, b: 0.8301887, a: 1}
+    strength: 1
+  - className: Rice paddy
+    albedo: {fileID: 2800000, guid: 79590be639900a34591cc6e6df2fdd49, type: 3}
+    sizeMetres: 180
+    colourFrom: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    strength: 1
+  - className: Rock / bare
+    albedo: {fileID: 2800000, guid: 3539f5db0d6812e469245b20ccb681d7, type: 3}
+    sizeMetres: 32
+    colourFrom: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    strength: 1
+  - className: Beach / sand
+    albedo: {fileID: 2800000, guid: 89323c999a707e84ca9f8c75c3dcb701, type: 3}
+    sizeMetres: 16
+    colourFrom: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    strength: 1
+  steepSlopes:
+    className: (steep slopes)
+    albedo: {fileID: 2800000, guid: 3539f5db0d6812e469245b20ccb681d7, type: 3}
+    sizeMetres: 40
+    colourFrom: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    strength: 1

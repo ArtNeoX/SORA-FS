@@ -42,6 +42,8 @@ namespace CirrusFS.Geo
         double lat, lon, height, headingDeg, groundSpeed, cameraDistance;
         Double3 ecef;
         bool hasTarget;
+        float ground;
+        bool hasGround;
 
         const int WindowId = 0x6E0;
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
@@ -84,6 +86,8 @@ namespace CirrusFS.Geo
 
             Camera cam = viewCamera != null ? viewCamera : Camera.main;
             cameraDistance = cam != null ? Vector3.Distance(cam.transform.position, position) : 0.0;
+
+            hasGround = GlobeTerrain.Active != null && GlobeTerrain.Active.TryGetHeight(lat, lon, out ground);
         }
 
         void OnGUI()
@@ -113,9 +117,9 @@ namespace CirrusFS.Geo
             const float pad = 10f;
             float width = windowRect.width - pad * 2f;
 
-            GUI.Label(new Rect(pad, 22f, width, 200f), BuildText(), labelStyle);
+            GUI.Label(new Rect(pad, 22f, width, 236f), BuildText(), labelStyle);
 
-            var mapRect = new Rect(pad, 228f, width, width * 0.5f);
+            var mapRect = new Rect(pad, 262f, width, width * 0.5f);
             DrawMap(mapRect);
 
             float y = mapRect.yMax + 6f;
@@ -145,6 +149,16 @@ namespace CirrusFS.Geo
             text.AppendFormat(Inv, "Hdg   {0:F1}° true      GS  {1:F1} kt  ({2:F1} m/s)\n",
                               headingDeg, groundSpeed * 1.943844, groundSpeed);
             text.AppendFormat(Inv, "ECEF  x {0:F2}\n      y {1:F2}\n      z {2:F2}\n", ecef.x, ecef.y, ecef.z);
+            GlobeTerrain terrain = GlobeTerrain.Active;
+            if (hasGround)
+                text.AppendFormat(Inv, "Ground {0:F1} m   AGL {1:F1} m   tile {2}\n", ground,
+                                  height - Mathf.Max(ground, 0f), terrain.Data.TileContaining(lat, lon)?.Id);
+            else
+                text.AppendFormat(Inv, "Ground: sea (no terrain tile)   AGL {0:F1} m\n", height);
+            if (terrain != null)
+                text.AppendFormat(Inv, "Terrain {0} tiles, {1} chunks (L{2}), {3} cached, {4:F2} ms/build\n",
+                                  terrain.VisibleTileCount, terrain.VisibleChunkCount, terrain.DeepestVisibleLevel,
+                                  terrain.CachedChunkCount, terrain.AverageBuildMs);
             text.AppendFormat(Inv, "Camera distance  {0}\n", FormatDistance(cameraDistance));
             text.AppendFormat(Inv, "Origin re-centres  {0}   (origin {1:F4}, {2:F4})",
                               GeoOrigin.RecenterCount, GeoOrigin.Latitude, GeoOrigin.Longitude);
