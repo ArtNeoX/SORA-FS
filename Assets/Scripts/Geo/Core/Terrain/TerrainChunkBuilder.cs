@@ -241,6 +241,31 @@ namespace CirrusFS.Geo
             }
         }
 
+        /// Height of the drawn surface at a lat/lon: the triangles of a chunk grid with
+        /// `verticesPerDegree` (K = 2^L * R) vertices per degree, split along the same
+        /// south-east to north-west diagonal as Build. This is what the eye and the colliders
+        /// see; the tile's bilinear surface differs from it between vertices by up to a few
+        /// metres on hills, because the grid does not line up with the height samples.
+        public static float SurfaceHeight(TerrainTileSource tile, double latDeg, double lonDeg, long verticesPerDegree)
+        {
+            long k = verticesPerDegree;
+            double fi = (lonDeg - tile.Lon) * k, fj = (latDeg - tile.Lat) * k;
+            long i = Math.Max(0, Math.Min(k - 1, (long)Math.Floor(fi)));
+            long j = Math.Max(0, Math.Min(k - 1, (long)Math.Floor(fj)));
+            double u = fi - i, v = fj - j;
+
+            // vertex lat/lon from integers, exactly as Build computes them
+            double latS = (double)(tile.Lat * k + j) / k, latN = (double)(tile.Lat * k + j + 1) / k;
+            double lonW = (double)(tile.Lon * k + i) / k, lonE = (double)(tile.Lon * k + i + 1) / k;
+            float ha = tile.SampleHeight(latS, lonW);    // a: south-west
+            float hb = tile.SampleHeight(latS, lonE);    // b: south-east
+            float hc = tile.SampleHeight(latN, lonW);    // c: north-west
+            float he = tile.SampleHeight(latN, lonE);    // e: north-east
+
+            if (u + v <= 1.0) return ha + (float)u * (hb - ha) + (float)v * (hc - ha);
+            return he + (float)(1.0 - u) * (hc - he) + (float)(1.0 - v) * (hb - he);
+        }
+
         /// Spherical Mercator northing, metres at equator scale. Clamped short of the poles.
         public static double MercatorY(double latDeg)
         {

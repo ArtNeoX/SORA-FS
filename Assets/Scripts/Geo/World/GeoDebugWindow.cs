@@ -117,9 +117,9 @@ namespace CirrusFS.Geo
             const float pad = 10f;
             float width = windowRect.width - pad * 2f;
 
-            GUI.Label(new Rect(pad, 22f, width, 236f), BuildText(), labelStyle);
+            GUI.Label(new Rect(pad, 22f, width, 254f), BuildText(), labelStyle);
 
-            var mapRect = new Rect(pad, 262f, width, width * 0.5f);
+            var mapRect = new Rect(pad, 280f, width, width * 0.5f);
             DrawMap(mapRect);
 
             float y = mapRect.yMax + 6f;
@@ -159,6 +159,11 @@ namespace CirrusFS.Geo
                 text.AppendFormat(Inv, "Terrain {0} tiles, {1} chunks (L{2}), {3} cached, {4:F2} ms/build\n",
                                   terrain.VisibleTileCount, terrain.VisibleChunkCount, terrain.DeepestVisibleLevel,
                                   terrain.CachedChunkCount, terrain.AverageBuildMs);
+            GlobeAutogen autogen = GlobeAutogen.Active;
+            if (autogen != null)
+                text.AppendFormat(Inv, "Autogen {0} objects in {1} patches, {2} cached, {3:F2} ms/patch\n",
+                                  autogen.DrawnInstanceCount, autogen.DrawnPatchCount, autogen.CachedPatchCount,
+                                  autogen.AverageBuildMs);
             text.AppendFormat(Inv, "Camera distance  {0}\n", FormatDistance(cameraDistance));
             text.AppendFormat(Inv, "Origin re-centres  {0}   (origin {1:F4}, {2:F4})",
                               GeoOrigin.RecenterCount, GeoOrigin.Latitude, GeoOrigin.Longitude);

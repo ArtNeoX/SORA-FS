@@ -203,6 +203,57 @@ ellipsoid heights, the same assumption as the h = 0 ocean (§1).
 - The softest class blend is about one class cell wide (~30 m at 3600 cells/°).
 - Chunks are built on the main thread, about 3 ms each, within a 4 ms budget per frame.
 
+## 6. Autogen (objects by land class)
+
+`World/Autogen/GlobeAutogen.cs` places objects on the terrain by land class. For now that's
+the trees on "Forest". It's configured by `Assets/Resources/Autogen/AutogenSet.asset`; edits
+apply live in play mode.
+
+**Placement (`Core/Autogen/AutogenPlacement.cs`).**
+- The world is cut into patches of 1/128° (about 870 × 690 m at 37° N). Each patch lies
+  inside one terrain tile.
+- A patch is a jittered grid of candidates at the layer's density. A candidate is kept where
+  the class cell under it is one of the layer's classes.
+- Each candidate always draws the same seven random numbers from a generator seeded by the
+  patch and the layer. That gives its position, yaw, size, texture variant, thinning value
+  and brightness. A tree is therefore always in the same place, and nothing is stored.
+- Heights come from `TerrainChunkBuilder.SurfaceHeight`: the triangles of the tile's finest
+  terrain level, with the same diagonal the builder uses. This is the surface that's drawn
+  and that the colliders use. The bilinear data surface isn't used here: the mesh grid
+  (2048 vertices/°) doesn't line up with the height samples (1200/°), so on hills the two
+  differ by up to ~6 m. In a play test, all 2,577 trees within 600 m were 0.000 m from the
+  collider surface.
+- Positions are relative to the patch centre in its east/up/north frame, computed in double.
+- Within each layer's range the terrain is always at its finest level (it splits to that
+  level out to about 9 km).
+
+**Streaming and drawing.**
+- Patches within a layer's range are built nearest first, within `buildBudgetMs` per frame.
+  Built patches are cached (`cacheSize`).
+- Each patch is one `DrawMeshInstancedProcedural` call, issued per camera in
+  `beginCameraRendering` for game cameras. The editor's Scene view gets them only with
+  `drawInSceneView`. Instances are in a GPU buffer. The patch matrix is rebuilt from
+  ECEF every time it is drawn, so re-centring needs no handling.
+
+**Layer settings (`AutogenSet`).**
+- Classes, model and texture variants.
+- Density in objects per hectare.
+- Full-density range and range: between the two, objects thin out. Each object shrinks away
+  at its own distance, so nothing pops.
+- Scale range, random yaw, ± brightness, sink depth and shadows.
+- The model keeps its import transform, and its lowest point is placed on the ground.
+
+**Shader (`World/Autogen/AutogenFoliage.shader`).**
+- Alpha-cutout foliage with wrap lighting around local up, sun shining through the leaves,
+  and darker shading toward the trunk.
+- Shadow caster, depth and depth-normals passes all clip on the texture's alpha.
+- **Texture detail by distance:** beyond *Full-resolution texture up to (m)*, the mip level
+  is raised by *Mip levels dropped per distance doubling* for every doubling of distance.
+  It's never finer than the GPU's own choice.
+- Texture variants of the same size and format are copied into one array on the GPU and stay
+  compressed (DXT5). The tree textures import with *mip maps preserve coverage*, so canopies
+  don't thin out in the far mips.
+
 ## Tests
 
 `Assets/Tests/EditMode` (assembly `CirrusFS.Geo.Tests`, run from the Test Runner, EditMode):

@@ -182,5 +182,93 @@ namespace CirrusFS.Geo.Tests
             double slopeN = 120.0 / (GeoMath.Deg2Rad * 6.36e6);
             Assert.AreEqual(-slopeN, n.z / n.y, slopeN * 0.05, "north slope magnitude");
         }
+
+        // ---- autogen placement ------------------------------------------------------
+        // Class cell [1, 1] of +37+127 has id 5 ("Forest"): lat 37.25..37.5, lon 127.25..127.5.
+
+        static AutogenPlacement.Settings ForestSettings(double density)
+        {
+            var mask = new bool[256];
+            mask[5] = true;
+            return new AutogenPlacement.Settings
+            {
+                densityPerHectare = density, classMask = mask, minScale = 0.8f, maxScale = 1.2f,
+                randomYaw = true, variants = 3, tintVariation = 0.1f, sink = 0.5f, seed = 7,
+            };
+        }
+
+        [Test]
+        public void Autogen_SamePatchSameTrees()
+        {
+            TerrainTileSource tile = set.TileContaining(37.3, 127.3);
+            long row = AutogenPlacement.Row(37.3), col = AutogenPlacement.Column(127.3);
+            var a = new AutogenPlacement.Result();
+            var b = new AutogenPlacement.Result();
+            AutogenPlacement.Build(tile, row, col, ForestSettings(40), a);
+            AutogenPlacement.Build(tile, row, col, ForestSettings(40), b);
+            Assert.Greater(a.Count, 0);
+            CollectionAssert.AreEqual(a.Data, b.Data);
+        }
+
+        [Test]
+        public void Autogen_OnlyOnItsClass_AtTheRequestedDensity()
+        {
+            TerrainTileSource tile = set.TileContaining(37.3, 127.3);
+            var r = new AutogenPlacement.Result();
+
+            // patch inside the forest cell: every candidate is kept
+            AutogenPlacement.Build(tile, AutogenPlacement.Row(37.3), AutogenPlacement.Column(127.3), ForestSettings(40), r);
+            double km = 111.0 * AutogenPlacement.PatchSize;
+            double hectares = km * km * Math.Cos(37.3 * GeoMath.Deg2Rad) * 100.0;
+            Assert.AreEqual(40.0 * hectares, r.Count, 40.0 * hectares * 0.1, "density");
+
+            // patch inside a cell of another class: none
+            AutogenPlacement.Build(tile, AutogenPlacement.Row(37.1), AutogenPlacement.Column(127.1), ForestSettings(40), r);
+            Assert.AreEqual(0, r.Count);
+
+            // variant, scale and yaw in range
+            AutogenPlacement.Build(tile, AutogenPlacement.Row(37.3), AutogenPlacement.Column(127.3), ForestSettings(40), r);
+            for (int k = 0; k < r.Count; k++)
+            {
+                Vector4 a = r.Data[2 * k], b = r.Data[2 * k + 1];
+                Assert.That(a.w, Is.InRange(0f, 2f * Mathf.PI));
+                Assert.That(b.x, Is.InRange(0.8f, 1.2f));
+                Assert.That(b.y, Is.EqualTo(0f).Or.EqualTo(1f).Or.EqualTo(2f));
+                Assert.That(b.z, Is.InRange(0f, 1f));
+            }
+        }
+
+        [Test]
+        public void SurfaceHeight_FollowsTheChunkTriangles()
+        {
+            TerrainTileSource tile = set.TileContaining(37.3, 127.3);
+            const long k = 16;   // level 1, R = 8
+            // exact at the grid vertices
+            Assert.AreEqual(tile.SampleHeight(37 + 3.0 / k, 127 + 5.0 / k),
+                            TerrainChunkBuilder.SurfaceHeight(tile, 37 + 3.0 / k, 127 + 5.0 / k, k), 1e-3f);
+            // on the shared diagonal (south-east to north-west) it is the mean of its two ends
+            float b = tile.SampleHeight(37 + 3.0 / k, 127 + 6.0 / k), c = tile.SampleHeight(37 + 4.0 / k, 127 + 5.0 / k);
+            Assert.AreEqual(0.5f * (b + c), TerrainChunkBuilder.SurfaceHeight(tile, 37 + 3.5 / k, 127 + 5.5 / k, k), 1e-3f);
+        }
+
+        [Test]
+        public void Autogen_StandsOnTheSurface_InsideThePatch()
+        {
+            TerrainTileSource tile = set.TileContaining(37.3, 127.3);
+            long row = AutogenPlacement.Row(37.3), col = AutogenPlacement.Column(127.3);
+            var r = new AutogenPlacement.Result();
+            AutogenPlacement.Build(tile, row, col, ForestSettings(10), r);
+            double south = AutogenPlacement.SouthOf(row), west = AutogenPlacement.WestOf(col);
+
+            for (int k = 0; k < r.Count; k += 7)
+            {
+                Vector4 p = r.Data[2 * k];
+                Double3 ecef = r.Centre + r.East * p.x + r.Up * p.y + r.North * p.z;
+                GeoMath.EcefToGeodetic(ecef, out double lat, out double lon, out double h);
+                Assert.That(lat, Is.InRange(south, south + AutogenPlacement.PatchSize));
+                Assert.That(lon, Is.InRange(west, west + AutogenPlacement.PatchSize));
+                Assert.AreEqual(tile.SampleHeight(lat, lon) - 0.5, h, 0.02, "height on the surface, minus sink");
+            }
+        }
     }
 }
