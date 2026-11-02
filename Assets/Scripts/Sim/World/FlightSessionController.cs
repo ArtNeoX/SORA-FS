@@ -113,6 +113,8 @@ namespace CirrusFS.Sim
             if (waterContact != null) waterContact.target = spawned.transform;
             if (terrainContact != null) terrainContact.target = spawned.transform;
             if (debugWindow != null) debugWindow.target = spawned.transform;
+            // terrain detail follows the aircraft, not the camera
+            if (GlobeTerrain.Active != null) GlobeTerrain.Active.focus = spawned.transform;
 
             if (hud != null)
             {
@@ -151,6 +153,7 @@ namespace CirrusFS.Sim
             if (waterContact != null) waterContact.target = null;
             if (terrainContact != null) terrainContact.target = null;
             if (debugWindow != null) debugWindow.target = null;
+            if (GlobeTerrain.Active != null) GlobeTerrain.Active.focus = null;
 
             if (hudRoot != null) hudRoot.SetActive(false);
             if (menuRoot != null) menuRoot.SetActive(true);

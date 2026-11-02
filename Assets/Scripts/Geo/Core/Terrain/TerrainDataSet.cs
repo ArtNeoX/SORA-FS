@@ -130,6 +130,58 @@ namespace CirrusFS.Geo
             return decodeMin + heights.ReadUInt16(((long)i * (N + 1) + j) * 2) * decodeScale;
         }
 
+        /// Writes this tile's share of a whole-world overview: vertices at `perDegree` per
+        /// degree into `heights` (metres, rounded; row 0 = 90° S, stride 360·p + 1) and the
+        /// class at each overview cell's centre into `classes` (stride 360·p). Reads only the
+        /// rows it needs with plain file reads (about 23 KB of a 0.7 MB tile), never the memory
+        /// maps, so it is safe on a worker thread.
+        internal void ReadOverview(int perDegree, short[] heights, byte[] classes)
+        {
+            int p = perDegree, heightStride = 360 * p + 1, classStride = 360 * p;
+            int row0 = (Lat + 90) * p, col0 = (Lon + 180) * p;
+
+            using (var f = new FileStream(heightPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096))
+            {
+                var row = new byte[(N + 1) * 2];
+                for (int i = 0; i <= p; i++)
+                {
+                    int ri = (int)Math.Round((double)i * N / p);
+                    f.Seek((long)ri * row.Length, SeekOrigin.Begin);
+                    ReadFully(f, row);
+                    for (int j = 0; j <= p; j++)
+                    {
+                        int o = (int)Math.Round((double)j * N / p) * 2;
+                        double metres = decodeMin + (row[o] | (row[o + 1] << 8)) * (double)decodeScale;
+                        heights[(row0 + i) * heightStride + col0 + j] = (short)Math.Max(-32768.0, Math.Min(32767.0, Math.Round(metres)));
+                    }
+                }
+            }
+
+            using (var f = new FileStream(classPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096))
+            {
+                var row = new byte[M];
+                for (int i = 0; i < p; i++)
+                {
+                    int ci = Math.Min(M - 1, (int)((i + 0.5) * M / p));
+                    f.Seek((long)ci * M, SeekOrigin.Begin);
+                    ReadFully(f, row);
+                    for (int j = 0; j < p; j++)
+                        classes[(row0 + i) * classStride + col0 + j] = row[Math.Min(M - 1, (int)((j + 0.5) * M / p))];
+                }
+            }
+        }
+
+        static void ReadFully(Stream s, byte[] buffer)
+        {
+            int read = 0;
+            while (read < buffer.Length)
+            {
+                int n = s.Read(buffer, read, buffer.Length - read);
+                if (n <= 0) throw new EndOfStreamException();
+                read += n;
+            }
+        }
+
         // ---- blending into a coarser neighbour ----------------------------------------
 
         /// An edge (or corner) of this tile that touches a tile of a lower-priority folder:
@@ -240,6 +292,7 @@ namespace CirrusFS.Geo
         /// Class definitions of the first folder (colour palette for the shader).
         public TerrainClassDef[] Classes = Array.Empty<TerrainClassDef>();
         public int WaterClass;
+        public float SeaHeight = -5f;
 
         readonly Dictionary<int, TerrainTileSource> byKey = new Dictionary<int, TerrainTileSource>();
 
@@ -301,6 +354,7 @@ namespace CirrusFS.Geo
                 {
                     set.Classes = manifest.classes ?? Array.Empty<TerrainClassDef>();
                     set.WaterClass = manifest.waterClass;
+                    set.SeaHeight = manifest.seaHeight;
                 }
                 else if (!SameClasses(set.Classes, manifest.classes))
                 {

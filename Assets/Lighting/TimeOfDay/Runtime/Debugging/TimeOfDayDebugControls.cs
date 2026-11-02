@@ -11,7 +11,7 @@ namespace CirrusFS.TimeOfDay
     ///   F9              fast-forward: 1x, 60x, 600x, 3600x
     ///   F10             pause / resume the clock
     ///   F7              next quality tier
-    ///   - / =           visibility halved / doubled
+    ///   PgDn / PgUp     visibility halved / doubled (not - / =: those zoom the external camera)
     ///   F6              snap exposure and ambient (skip adaptation after a jump)
     [DefaultExecutionOrder(-90)]
     public class TimeOfDayDebugControls : MonoBehaviour
@@ -43,8 +43,8 @@ namespace CirrusFS.TimeOfDay
             if (k.f9Key.wasPressedThisFrame) CycleTimeScale(clock);
             if (k.f10Key.wasPressedThisFrame) clock.paused = !clock.paused;
             if (k.f7Key.wasPressedThisFrame) CycleTier();
-            if (k.minusKey.wasPressedThisFrame) system.SetVisibility(system.visibilityKm * 0.5f);
-            if (k.equalsKey.wasPressedThisFrame) system.SetVisibility(system.visibilityKm * 2f);
+            if (k.pageDownKey.wasPressedThisFrame) system.SetVisibility(system.visibilityKm * 0.5f);
+            if (k.pageUpKey.wasPressedThisFrame) system.SetVisibility(system.visibilityKm * 2f);
             if (k.f6Key.wasPressedThisFrame) Snap();
         }
 

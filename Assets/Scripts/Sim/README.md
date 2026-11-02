@@ -37,8 +37,11 @@ UI/
 - **Terrain** — `GlobeTerrain`: streams the exporter's 1° tiles from `<project>/TerrainData`
   as LOD chunks on the globe (see `Geo/README.md` §5).
 - **TerrainContact** — `TerrainCollision`: full-resolution ground colliders under the aircraft.
-- **Main Camera** — `AircraftCamera` (V toggles cockpit / external; in external, + / - zoom
-  from 10 m to 50,000 km) and `GeoCameraRange` (far plane from altitude).
+- **Main Camera** — `AircraftCamera` and `GeoCameraRange` (far plane from altitude).
+  - V toggles cockpit and external view.
+  - In external view, holding + / - zooms from 10 m to 50,000 km. The zoom is exponential
+    (`zoomRate` e-folds a second, speed proportional to the distance) and eased by
+    `zoomSmoothing`.
 - **Directional Light** — `GeoSky`: the sun is fixed in ECEF, the sky fades to black with
   altitude.
 - **A320CEO** — the aircraft, with `GeoBody` (ECEF position in double, gravity toward the

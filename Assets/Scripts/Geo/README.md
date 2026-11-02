@@ -160,10 +160,33 @@ grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
   the edge.
 
 **Streaming (`World/Terrain/GlobeTerrain.cs`).**
-- A chunk splits while its vertex spacing, seen from the camera, exceeds `maxVertexAngle`
-  (about 4 px). It stops at the tile's data resolution.
-- Tiles and chunks behind the horizon are skipped. The horizon test allows for each
-  chunk's own height.
+- **Levels above the tiles.** Coarse chunks of 16°, 8°, 4° and 2° (`RegionLevels`, with
+  `regionResolution` quads per edge) cover every cell that has land. A 2° chunk splits into
+  the 1° tiles' own quadtrees.
+  - They're built from `Core/Terrain/TerrainOverview.cs`: a whole-world copy of the drawn
+    tiles at 16 samples/° (~7 km), about 50 MB.
+  - The overview is built from the tiles on worker threads the first time a data set is
+    seen (8 tiles at a time; one at a time took 10 minutes for the 26,138 world tiles). It
+    is cached in `persistentDataPath/TerrainOverview/`, keyed by the manifests, and loads in
+    under a second afterwards.
+  - Until it's ready, every visible tile draws its own whole-tile chunk, as before. F1
+    shows the build's progress.
+  - With the whole world loaded, the full-globe view draws under 1,000 chunks (982 at
+    10,000 km), where one per visible tile was about 13,000.
+- **Splitting.** A chunk splits while its vertex spacing, seen from the **focus**, exceeds
+  `maxVertexAngle / lodQuality` (about 4 px at quality 1). It stops at the tile's data
+  resolution.
+  - The focus is the aircraft: `FlightSessionController` sets `GlobeTerrain.focus` at spawn.
+    Zooming the camera out to the globe keeps the detail at the aircraft, not under the
+    camera. Without an aircraft the focus is the camera.
+  - **`lodQuality`** (0.25–4) is the detail slider for quality settings: about 0.5 low,
+    1 medium, 2 high.
+  - Cells within `immediateRadius` of the focus are built at once, outside the per-frame
+    budget.
+- Tiles and chunks behind the camera's horizon are skipped. The horizon test allows for
+  each chunk's own height.
+- Only the coarsest (16°) chunks stay cached forever. Everything else is evicted beyond
+  `cacheSize`.
 - Chunks are placed through `GeoOrigin` and re-placed on `Recentered`/`OriginReset`. The
   root carries `FloatingOriginIgnore`.
 - `GlobeTerrain.Active.TryGetHeight(lat, lon)` answers ground-height queries. The spawner
@@ -220,9 +243,11 @@ land class. The asset is `Assets/Textures/Terrain/TerrainClassTextures.asset`, a
 ellipsoid heights, the same assumption as the h = 0 ocean (§1).
 
 **Known limits.**
-- Every visible tile draws at least one chunk, so a whole-world data set seen from orbit
-  would need a coarser tile level above 1°. From cruise altitude (10 km) only about 50
-  tiles are within the horizon, so this matters only for the orbit view.
+- The overview is built from the drawn tiles at 16/°. A detailed regional tile's edge
+  blending isn't in it, which doesn't matter at that scale.
+- Sea floor: the terrain shader discards water cells at the exporter's sea-floor height.
+  From far away the ocean's coarse chords sag below h = 0, and the −5 m sea floor used to
+  show through as pale blocks. Lakes, even below sea level, aren't affected.
 - Class textures are point-sampled on coarse chunks, where a texel spans several data
   cells. They're smoothed in texels there.
 - Ground textures have a seam along the antimeridian (180°), where the detail grid wraps.

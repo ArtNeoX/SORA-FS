@@ -107,6 +107,7 @@ Shader "CirrusFS/Terrain"
             TEXTURE2D(_TerrainDetail); SAMPLER(sampler_TerrainDetail); // global
             float _TerrainClassTexSize;                               // texels + 2 apron, global
             float _TerrainClassApron;                                 // apron texels per side
+            float _TerrainSeaHeight;                                  // exporter's sea floor, metres
             TEXTURE2D_ARRAY(_TerrainClassAlbedo); SAMPLER(sampler_TerrainClassAlbedo); // global
             // per class id: x layer + 1 (0 = flat colour), y repeats per 4096 m, z strength,
             // w 1 = keep the class colour; tint linear RGB. Zero (unset) means flat colour.
@@ -156,9 +157,12 @@ Shader "CirrusFS/Terrain"
                 return float3(0.5 * a * a, 0.75 - u * u, 0.5 * b * b);
             }
 
+            // class texture size of this chunk (coarse chunks above the tiles use smaller ones)
+            float ClassTexSize() { return _ClassCells.w > 0.0 ? _ClassCells.w : _TerrainClassTexSize; }
+
             uint ClassId(int2 texel)
             {
-                int size = (int)_TerrainClassTexSize;
+                int size = (int)ClassTexSize();
                 texel = clamp(texel, 0, size - 1);
                 return (uint)round(LOAD_TEXTURE2D(_ClassTex, texel).r * 255.0);
             }
@@ -218,7 +222,7 @@ Shader "CirrusFS/Terrain"
                 float detailRate = length(ddx(i.uvDetail.xy)) + length(ddy(i.uvDetail.xy));
                 float classRate = length(ddx(i.uvClass)) + length(ddy(i.uvClass));
                 float cellsPerTexel = _ClassCells.x > 0.0 ? _ClassCells.x : 1.0;
-                float cellMetres = detailRate * 4096.0 / max(classRate * _TerrainClassTexSize * cellsPerTexel, 1e-6);
+                float cellMetres = detailRate * 4096.0 / max(classRate * ClassTexSize() * cellsPerTexel, 1e-6);
                 half4 nMacro = SAMPLE_TEXTURE2D(_TerrainDetail, sampler_TerrainDetail, i.uvDetail.xy * 4.0);
                 float4 octave = log2(float4(4096.0, 1024.0, 256.0, 32.0) / (4.0 * max(cellMetres, 1.0)));
                 octave = exp(-0.5 * octave * octave);
@@ -236,7 +240,7 @@ Shader "CirrusFS/Terrain"
                 // smooth diagonal. The lookup runs on the data's own cells (finer chunk texels
                 // hold each cell once or twice, unevenly), reading each cell at its centre.
                 // Up to four classes per pixel (a fifth is dropped).
-                float2 q = i.uvClass * _TerrainClassTexSize - _TerrainClassApron;   // texels from the chunk corner
+                float2 q = i.uvClass * ClassTexSize() - _TerrainClassApron;   // texels from the chunk corner
                 float2 t = q * cellsPerTexel + _ClassCells.yz + warp;               // cells from a cell edge
                 float2 cell = floor(t);
                 float3 wx = BSpline2(t.x - cell.x - 0.5), wy = BSpline2(t.y - cell.y - 0.5);
@@ -285,6 +289,12 @@ Shader "CirrusFS/Terrain"
 
                 half3 albedo = a0 * e.x + a1 * e.y + a2 * e.z + a3 * e.w;
                 half water = p0.a * e.x + p1.a * e.y + p2.a * e.z + p3.a * e.w;
+
+                // Sea floor under the ocean is never drawn. Seen from far away the ocean's coarse
+                // chords sag below the h = 0 ellipsoid by hundreds of metres, and the exporter's
+                // -5 m sea floor showed through them as pale blocks. Only water at that sea-floor
+                // height counts, so lakes (even below sea level) stay.
+                clip(0.5 - water * step(i.uvDetail.z, _TerrainSeaHeight + 1.0));
                 half luma = dot(albedo, half3(0.2126, 0.7152, 0.0722));
                 albedo = lerp(luma.xxx, albedo, _Saturation) * _Brightness;
 

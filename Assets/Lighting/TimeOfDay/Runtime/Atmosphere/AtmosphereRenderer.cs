@@ -456,9 +456,12 @@ namespace CirrusFS.TimeOfDay
                         sunChange > q.skyViewUpdateDegrees || heightChange > q.skyViewUpdateHeight;
             // A weather step is small, and the fog (which has no cross-fade) must not wait for a
             // sky fade still running from the previous step.
+            // Height changes always snap: the aerial LUT is built for one camera height, and a
+            // camera climbing faster than the fades (zooming the orbit view out) read a LUT
+            // built far below it, so distant ground got a long low-altitude path of haze.
             bool snap = !skyValid || q.skyViewBlendSeconds <= 0f || aerialMissing ||
                         (baseSwapped && skyBlend < 1f) ||
-                        sunChange > 4f * q.skyViewUpdateDegrees || heightChange > 4f * q.skyViewUpdateHeight;
+                        sunChange > 4f * q.skyViewUpdateDegrees || heightChange > q.skyViewUpdateHeight;
             bool rebuilt = false;
 
             if (need && (snap || skyBlend >= 1f))

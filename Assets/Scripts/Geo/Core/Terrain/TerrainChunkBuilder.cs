@@ -64,10 +64,57 @@ namespace CirrusFS.Geo
             return level;
         }
 
+        /// Where heights and land classes come from: a tile (with its neighbours across its
+        /// edges) or the coarse world overview.
+        public interface ISampler
+        {
+            float Height(double latDeg, double lonDeg);
+            byte ClassAt(double latDeg, double lonDeg);
+        }
+
+        readonly struct TileSampler : ISampler
+        {
+            readonly TerrainDataSet set;
+            readonly TerrainTileSource tile;
+            public TileSampler(TerrainDataSet set, TerrainTileSource tile) { this.set = set; this.tile = tile; }
+            public float Height(double latDeg, double lonDeg) => set.SampleHeight(latDeg, lonDeg, tile);
+            public byte ClassAt(double latDeg, double lonDeg) => set.ClassAt(latDeg, lonDeg, tile);
+        }
+
+        readonly struct OverviewSampler : ISampler
+        {
+            readonly TerrainOverview overview;
+            public OverviewSampler(TerrainOverview overview) { this.overview = overview; }
+            public float Height(double latDeg, double lonDeg) => overview.SampleHeight(latDeg, lonDeg);
+            public byte ClassAt(double latDeg, double lonDeg) => overview.ClassAt(latDeg, lonDeg);
+        }
+
+        /// Chunk (level, x, y) of a 1° tile.
         public static void Build(TerrainDataSet set, TerrainTileSource tile, int level, int x, int y,
                                  int resolution, int texels, bool skirts, TerrainChunkData d)
         {
             set.Touch(tile);
+            double size = 1.0 / (1 << level);
+            BuildGrid(new TileSampler(set, tile), tile.Lat + y * size, tile.Lon + x * size, size, size,
+                      resolution, texels, skirts, d);
+        }
+
+        /// A coarse chunk above the tiles (2° to 16°, clipped at the poles and the
+        /// antimeridian), from the world overview.
+        public static void BuildRegion(TerrainOverview overview, double lat0, double lon0, double sizeLat, double sizeLon,
+                                       int resolution, int texels, TerrainChunkData d)
+        {
+            BuildGrid(new OverviewSampler(overview), lat0, lon0, sizeLat, sizeLon, resolution, texels, true, d);
+        }
+
+        /// Vertex (i, j) sits at lat0 + j·sizeLat/r, lon0 + i·sizeLon/r. With sizes that are
+        /// powers of two of a degree and corners on whole multiples of them, every coordinate
+        /// is a short binary fraction, exact in double: a vertex on a shared border gets the
+        /// same double in both chunks, and in both tiles at a tile edge.
+        static void BuildGrid<TSampler>(TSampler sampler, double lat0, double lon0, double sizeLat, double sizeLon,
+                                        int resolution, int texels, bool skirts, TerrainChunkData d)
+            where TSampler : struct, ISampler
+        {
             int r = resolution;
             int gridCount = (r + 1) * (r + 1);
             int skirtCount = skirts ? 4 * r : 0;
@@ -90,11 +137,7 @@ namespace CirrusFS.Geo
             d.IndexCount = indexCount;
             d.ClassTextureSize = texSize;
 
-            long k = (1L << level) * r;                 // vertices per degree at this level
-            long iBase = tile.Lon * k + x * r;          // global vertex index of the chunk's west column
-            long jBase = tile.Lat * k + y * r;          // ... and south row
-            double size = 1.0 / (1 << level);
-            double lat0 = tile.Lat + y * size, lon0 = tile.Lon + x * size;
+            double stepLat = sizeLat / r, stepLon = sizeLon / r;
 
             // ---- heights, with a one-vertex apron for the normals ----------------------
             int g = r + 3;
@@ -102,11 +145,11 @@ namespace CirrusFS.Geo
             float minH = float.MaxValue, maxH = float.MinValue;
             for (int j = -1; j <= r + 1; j++)
             {
-                double lat = (double)(jBase + j) / k;
+                double lat = lat0 + j * stepLat;
                 for (int i = -1; i <= r + 1; i++)
                 {
-                    double lon = (double)(iBase + i) / k;
-                    float h = set.SampleHeight(lat, lon, tile);
+                    double lon = lon0 + i * stepLon;
+                    float h = sampler.Height(lat, lon);
                     hg[(j + 1) * g + (i + 1)] = h;
                     if (i >= 0 && i <= r && j >= 0 && j <= r)
                     {
@@ -119,7 +162,7 @@ namespace CirrusFS.Geo
             d.MaxHeight = maxH;
 
             // ---- chunk frame -----------------------------------------------------------
-            double latC = lat0 + size * 0.5, lonC = lon0 + size * 0.5;
+            double latC = lat0 + sizeLat * 0.5, lonC = lon0 + sizeLon * 0.5;
             Double3 centre = GeoMath.GeodeticToEcef(latC, lonC, 0.5 * (minH + maxH));
             GeoMath.EnuBasis(latC, lonC, out Double3 ce, out Double3 cn, out Double3 cu);
             d.Centre = centre;
@@ -134,24 +177,24 @@ namespace CirrusFS.Geo
             double offX = Math.Floor(lonC * GeoMath.Deg2Rad * metresPerRad / DetailPeriod) * DetailPeriod;
             double offY = Math.Floor(MercatorY(latC) / DetailPeriod) * DetailPeriod;
 
-            double stepRad = GeoMath.Deg2Rad / k;
+            double stepLatRad = stepLat * GeoMath.Deg2Rad, stepLonRad = stepLon * GeoMath.Deg2Rad;
             double radius = 0.0;
 
             for (int j = 0; j <= r; j++)
             {
-                double lat = (double)(jBase + j) / k;
+                double lat = lat0 + j * stepLat;
                 double phi = lat * GeoMath.Deg2Rad;
                 double sinP = Math.Sin(phi), cosP = Math.Cos(phi);
                 double w = Math.Sqrt(1.0 - GeoMath.E2 * sinP * sinP);
                 double primeN = GeoMath.A / w;
                 double meridianM = GeoMath.A * (1.0 - GeoMath.E2) / (w * w * w);
-                double dEast = Math.Max(2.0 * stepRad * primeN * cosP, 1e-3);
-                double dNorth = 2.0 * stepRad * meridianM;
+                double dEast = Math.Max(2.0 * stepLonRad * primeN * cosP, 1e-3);
+                double dNorth = 2.0 * stepLatRad * meridianM;
                 float detailY = (float)((MercatorY(lat) - offY) / DetailPeriod);
 
                 for (int i = 0; i <= r; i++)
                 {
-                    double lon = (double)(iBase + i) / k;
+                    double lon = lon0 + i * stepLon;
                     double lam = lon * GeoMath.Deg2Rad;
                     double sinL = Math.Sin(lam), cosL = Math.Cos(lam);
                     double h = hg[(j + 1) * g + (i + 1)];
@@ -183,10 +226,11 @@ namespace CirrusFS.Geo
             d.Radius = Math.Sqrt(radius);
 
             // longest neighbour distance: east-west on the equatorward edge, or north-south
-            double eqLat = Math.Abs(lat0) < Math.Abs(lat0 + size) ? lat0 : lat0 + size;
-            double eastSpacing = size * GeoMath.Deg2Rad * GeoMath.PrimeVerticalRadius(eqLat) *
+            double eqLat = Math.Abs(lat0) < Math.Abs(lat0 + sizeLat) ? lat0 : lat0 + sizeLat;
+            if (lat0 < 0.0 && lat0 + sizeLat > 0.0) eqLat = 0.0;
+            double eastSpacing = sizeLon * GeoMath.Deg2Rad * GeoMath.PrimeVerticalRadius(eqLat) *
                                  Math.Cos(eqLat * GeoMath.Deg2Rad) / r;
-            double northSpacing = size * GeoMath.Deg2Rad * GeoMath.A / r;
+            double northSpacing = sizeLat * GeoMath.Deg2Rad * GeoMath.A / r;
             d.Spacing = Math.Max(eastSpacing, northSpacing);
 
             // ---- triangles -------------------------------------------------------------
@@ -215,7 +259,7 @@ namespace CirrusFS.Geo
                 {
                     int src = border[s];
                     int bj = src / (r + 1), bi = src % (r + 1);
-                    double lat = (double)(jBase + bj) / k, lon = (double)(iBase + bi) / k;
+                    double lat = lat0 + bj * stepLat, lon = lon0 + bi * stepLon;
                     GeoMath.EnuBasis(lat, lon, out _, out _, out Double3 up);
                     int dst = gridCount + s;
                     d.Vertices[dst] = d.Vertices[src] - ToLocal(up, ce, cn, cu) * depth;
@@ -234,14 +278,14 @@ namespace CirrusFS.Geo
             }
 
             // ---- class texels (cell centres, plus an apron of ClassApron texels) --------
-            double texel = size / texels;
+            double texelLat = sizeLat / texels, texelLon = sizeLon / texels;
             for (int b = 0; b < texSize; b++)
             {
-                double lat = lat0 + (b - ClassApron + 0.5) * texel;
+                double lat = lat0 + (b - ClassApron + 0.5) * texelLat;
                 for (int a = 0; a < texSize; a++)
                 {
-                    double lon = lon0 + (a - ClassApron + 0.5) * texel;
-                    d.ClassTexels[b * texSize + a] = set.ClassAt(lat, lon, tile);
+                    double lon = lon0 + (a - ClassApron + 0.5) * texelLon;
+                    d.ClassTexels[b * texSize + a] = sampler.ClassAt(lat, lon);
                 }
             }
         }

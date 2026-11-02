@@ -13,10 +13,12 @@ namespace CirrusFS.Flight
     ///              radius with a mouse-owned view direction. Yaw and pitch are measured in the
     ///              local horizon frame at the aircraft (not Unity's axes, which turn with every
     ///              floating-origin re-centre), so the view holds still over the globe.
-    ///              "+" / "-" (and the numpad keys) multiply / divide the distance by
-    ///              `zoomStep`, from `minDistance` out to `maxDistance`. Only the distance
-    ///              changes: the camera slides straight along its line to the aircraft and
-    ///              keeps looking at it at every range.
+    ///              Holding "+" / "-" (or the numpad keys) zooms exponentially: the distance
+    ///              changes by `zoomRate` e-folds per second, so the speed is proportional to
+    ///              the distance (metres a second near the aircraft, thousands of kilometres a
+    ///              second out at the globe), from `minDistance` to `maxDistance`, eased by
+    ///              `zoomSmoothing`. Only the distance changes: the camera slides straight
+    ///              along its line to the aircraft and keeps looking at it at every range.
     ///
     /// Cockpit is the default. The two modes keep their own FOV and near clip, so switching
     /// back and forth does not carry one view's zoom into the other.
@@ -47,8 +49,12 @@ namespace CirrusFS.Flight
         [Range(0f, 1f)] public float smoothness = 0.15f;
 
         [Header("Orbit distance")]
-        [Tooltip("Factor applied per + / - press.")]
-        public float zoomStep = 1.5f;
+        [Tooltip("Zoom speed while + / - is held, in e-folds per second: 1.5 multiplies the " +
+                 "distance by about 4.5 each second. Proportional to the distance, so it is slow " +
+                 "near the aircraft and faster and faster further out.")]
+        public float zoomRate = 1.5f;
+        [Tooltip("Seconds the camera takes to catch up with the zoom keys (0 = at once).")]
+        [Min(0f)] public float zoomSmoothing = 0.15f;
         public float minDistance = 10f;
         [Tooltip("50,000 km: far enough to see the whole Earth.")]
         public float maxDistance = 5.0e7f;
@@ -101,6 +107,11 @@ namespace CirrusFS.Flight
         float orbitalFov;
         float cockpitTargetFov;
         float orbitalNearClip;
+
+        // Orbital zoom: where the keys are taking the distance, and the distance last written
+        // (so a distance set from outside is adopted as the new target).
+        float targetDistance = -1f;
+        float writtenDistance = -1f;
 
         // Orbital state: world-space, mouse-owned.
         float orbitYaw;
@@ -202,18 +213,28 @@ namespace CirrusFS.Flight
             else orbitalFov = fov;
         }
 
-        /// "+" / "-" on the main row ("=" is the unshifted "+") or the numpad.
+        /// "+" / "-" on the main row ("=" is the unshifted "+") or the numpad, held: the target
+        /// distance grows or shrinks exponentially, and the camera eases to it in log space, so
+        /// a step from 10 m to 20 m takes as long as one from 1000 km to 2000 km.
         void ReadDistanceKeys()
         {
+            if (targetDistance < 0f || !Mathf.Approximately(distance, writtenDistance)) targetDistance = distance;
+
+            float dt = Time.unscaledDeltaTime;
             Keyboard keyboard = Keyboard.current;
-            if (keyboard == null) return;
+            if (keyboard != null)
+            {
+                float zoom = 0f;
+                if (keyboard.equalsKey.isPressed || keyboard.numpadPlusKey.isPressed) zoom -= 1f;
+                if (keyboard.minusKey.isPressed || keyboard.numpadMinusKey.isPressed) zoom += 1f;
+                if (zoom != 0f) targetDistance *= Mathf.Exp(zoom * zoomRate * dt);
+            }
+            targetDistance = Mathf.Clamp(targetDistance, minDistance, maxDistance);
 
-            if (keyboard.equalsKey.wasPressedThisFrame || keyboard.numpadPlusKey.wasPressedThisFrame)
-                distance /= zoomStep;
-            if (keyboard.minusKey.wasPressedThisFrame || keyboard.numpadMinusKey.wasPressedThisFrame)
-                distance *= zoomStep;
-
-            distance = Mathf.Clamp(distance, minDistance, maxDistance);
+            float ease = zoomSmoothing > 0f ? 1f - Mathf.Exp(-dt / zoomSmoothing) : 1f;
+            float logDistance = Mathf.Lerp(Mathf.Log(Mathf.Max(distance, 1e-3f)), Mathf.Log(targetDistance), ease);
+            distance = Mathf.Clamp(Mathf.Exp(logDistance), minDistance, maxDistance);
+            writtenDistance = distance;
         }
 
         // ---- cockpit -------------------------------------------------------------

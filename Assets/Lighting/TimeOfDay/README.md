@@ -122,7 +122,7 @@ modified.
 | F9 | fast-forward 1× / 60× / 600× / 3600× |
 | F10 | pause the clock |
 | F7 | next quality tier |
-| `-` `=` | visibility halved / doubled |
+| `PgDn` `PgUp` | visibility halved / doubled (`-` and `=` belong to the camera zoom) |
 | F6 | snap exposure and ambient |
 
 `Scenes/TimeOfDayTest.unity` is a test bench at Tokyo Haneda (RJTT) with the overlay on.
