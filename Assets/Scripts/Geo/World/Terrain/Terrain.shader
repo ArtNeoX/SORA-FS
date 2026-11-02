@@ -1,10 +1,14 @@
 // Terrain chunks on the WGS84 globe (URP), fed by GlobeTerrain.
 //
-// Land class: every chunk carries a small R8 texture of class ids (one texel per class cell
-// at the finest level, plus a one-texel apron from the neighbours). The fragment blends the
-// colours of the four nearest cells by their bilinear weights, sharpened a little, with the
-// lookup position warped by detail noise, so borders between land types are soft and
-// irregular rather than a 30 m staircase. Colours come from the manifest's class list
+// Land class: every chunk carries a small R8 texture of class ids (one or two texels per
+// data cell at the finest level, coarser above it, plus an apron of _TerrainClassApron
+// texels from the neighbours); _ClassCells says how its texels sit on the data cells. Each
+// class's share of a quadratic B-spline over the 3x3 nearest data cells gives a smooth field;
+// the shares raised to _BorderCurve and normalised are the blend weights, so borders run
+// along that field's contours (curves, not the cell grid) and a lone cell or a staircase no
+// longer shows as squares at any distance. The lookup position is warped by Earth-anchored
+// noise whose wavelength follows the cell size on screen (from derivatives), so borders
+// wander at every LOD level without stippling. Colours come from the manifest's class list
 // (global _TerrainPalette, linear RGB; alpha = water).
 //
 // Ground textures: a class may also have a tiling albedo (GlobeTerrain.classTextures), one
@@ -34,8 +38,8 @@ Shader "CirrusFS/Terrain"
         _ShoreHeight ("Shore below height (m)", Float) = 3
 
         [Header(Class blending)]
-        _BlendSharpness ("Blend sharpness (1 = linear)", Range(0.1, 4)) = 1.2
-        _BlendWarp ("Border warp (cells)", Range(0, 10)) = 0.9
+        _BorderCurve ("Border sharpness (1 = soft blur)", Range(1, 12)) = 4
+        _BlendWarp ("Border warp (cells, at most 2)", Range(0, 4)) = 1.5
 
         [Header(Ground textures)]
         _TextureAntiTiling ("Anti-tiling mix", Range(0, 1)) = 0.5
@@ -68,7 +72,7 @@ Shader "CirrusFS/Terrain"
             float _WaterGlint;
             half4 _ShoreColor;
             float _ShoreHeight;
-            float _BlendSharpness, _BlendWarp;
+            float _BorderCurve, _BlendWarp;
             float _TextureAntiTiling;
             float _DetailStrength, _DetailFade;
             half4 _RockColor;
@@ -98,9 +102,11 @@ Shader "CirrusFS/Terrain"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             TEXTURE2D(_ClassTex);                                     // per chunk
+            float4 _ClassCells;    // per chunk: x data cells per texel (<= 1), yz cell offset of the chunk corner
             TEXTURE2D(_TerrainPalette);                               // 256 x 1, global
             TEXTURE2D(_TerrainDetail); SAMPLER(sampler_TerrainDetail); // global
-            float _TerrainClassTexSize;                               // texels + 2, global
+            float _TerrainClassTexSize;                               // texels + 2 apron, global
+            float _TerrainClassApron;                                 // apron texels per side
             TEXTURE2D_ARRAY(_TerrainClassAlbedo); SAMPLER(sampler_TerrainClassAlbedo); // global
             // per class id: x layer + 1 (0 = flat colour), y repeats per 4096 m, z strength,
             // w 1 = keep the class colour; tint linear RGB. Zero (unset) means flat colour.
@@ -140,6 +146,14 @@ Shader "CirrusFS/Terrain"
                 o.uvClass = input.uvClass;
                 o.uvDetail = input.uvDetail;
                 return o;
+            }
+
+            // Quadratic B-spline weights of cells -1, 0, +1 for an offset u (-0.5..0.5) from the
+            // nearest cell centre. Smooth (C1) and only 3x3 lookups.
+            float3 BSpline2(float u)
+            {
+                float a = 0.5 - u, b = 0.5 + u;
+                return float3(0.5 * a * a, 0.75 - u * u, 0.5 * b * b);
             }
 
             uint ClassId(int2 texel)
@@ -195,20 +209,66 @@ Shader "CirrusFS/Terrain"
                 half4 nFine = SAMPLE_TEXTURE2D(_TerrainDetail, sampler_TerrainDetail, i.uvDetail.xy * 128.0);
                 half fineFade = saturate(1.0 - dist / _DetailFade);
 
-                // ---- land class: four-cell blend with warped borders ---------------------
-                float2 warp = ((nMid.xy - 0.5) + (nFine.zw - 0.5) * 0.5 * fineFade) * _BlendWarp;
-                float2 t = i.uvClass * _TerrainClassTexSize - 0.5 + warp;
+                // ---- land class: four-texel blend with curved, warped borders -----------
+                // Texel size in metres, from how fast each coordinate changes on screen. It is
+                // ~30 m at the finest level, 185 m for a 600/deg world folder and up to
+                // ~870 m on a whole-tile chunk. The warp takes the noise octaves whose
+                // wavelength is near four texels: shorter ones break borders into a stipple,
+                // longer ones only slide the whole grid and leave its squares.
+                float detailRate = length(ddx(i.uvDetail.xy)) + length(ddy(i.uvDetail.xy));
+                float classRate = length(ddx(i.uvClass)) + length(ddy(i.uvClass));
+                float cellsPerTexel = _ClassCells.x > 0.0 ? _ClassCells.x : 1.0;
+                float cellMetres = detailRate * 4096.0 / max(classRate * _TerrainClassTexSize * cellsPerTexel, 1e-6);
+                half4 nMacro = SAMPLE_TEXTURE2D(_TerrainDetail, sampler_TerrainDetail, i.uvDetail.xy * 4.0);
+                float4 octave = log2(float4(4096.0, 1024.0, 256.0, 32.0) / (4.0 * max(cellMetres, 1.0)));
+                octave = exp(-0.5 * octave * octave);
+                octave.w *= fineFade;
+                float2 noise = (nLarge.xy - 0.5) * octave.x + (nMacro.xy - 0.5) * octave.y
+                             + (nMid.xy - 0.5) * octave.z + (nFine.zw - 0.5) * octave.w;
+                float2 warp = noise * (1.5 / max(octave.x + octave.y + octave.z + octave.w, 1e-3)) * _BlendWarp;
+                // the 3x3 lookup below reaches 1.5 cells out, plus the warp: stay in the apron
+                float warpLimit = max(_TerrainClassApron * cellsPerTexel - 2.0, 0.0);
+                warp *= min(1.0, warpLimit / max(length(warp), 1e-4));
+
+                // Each class's share of a quadratic B-spline over the 3x3 nearest data cells:
+                // a smooth field, so shapes follow its contours instead of the cell grid. A
+                // lone cell becomes a small round dot, a 2x2 group a round blob, a staircase a
+                // smooth diagonal. The lookup runs on the data's own cells (finer chunk texels
+                // hold each cell once or twice, unevenly), reading each cell at its centre.
+                // Up to four classes per pixel (a fifth is dropped).
+                float2 q = i.uvClass * _TerrainClassTexSize - _TerrainClassApron;   // texels from the chunk corner
+                float2 t = q * cellsPerTexel + _ClassCells.yz + warp;               // cells from a cell edge
                 float2 cell = floor(t);
-                float2 f = saturate((t - cell - 0.5) * _BlendSharpness + 0.5);
-                int2 c = int2(cell);
-                uint id00 = ClassId(c);
-                uint id10 = ClassId(c + int2(1, 0));
-                uint id01 = ClassId(c + int2(0, 1));
-                uint id11 = ClassId(c + int2(1, 1));
-                half4 p00 = LOAD_TEXTURE2D(_TerrainPalette, int2(id00, 0));
-                half4 p10 = LOAD_TEXTURE2D(_TerrainPalette, int2(id10, 0));
-                half4 p01 = LOAD_TEXTURE2D(_TerrainPalette, int2(id01, 0));
-                half4 p11 = LOAD_TEXTURE2D(_TerrainPalette, int2(id11, 0));
+                float3 wx = BSpline2(t.x - cell.x - 0.5), wy = BSpline2(t.y - cell.y - 0.5);
+                uint4 ids = uint4(0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF);
+                float4 share = 0.0;
+                [unroll] for (int y = 0; y < 3; y++)
+                {
+                    [unroll] for (int x = 0; x < 3; x++)
+                    {
+                        float2 centre = (cell + float2(x - 1, y - 1) + 0.5 - _ClassCells.yz) / cellsPerTexel;
+                        uint id = ClassId(int2(floor(centre)) + (int)_TerrainClassApron);
+                        float w = wx[x] * wy[y];
+                        if (id == ids.x) share.x += w;
+                        else if (id == ids.y) share.y += w;
+                        else if (id == ids.z) share.z += w;
+                        else if (id == ids.w) share.w += w;
+                        else if (ids.x == 0xFFFF) { ids.x = id; share.x = w; }
+                        else if (ids.y == 0xFFFF) { ids.y = id; share.y = w; }
+                        else if (ids.z == 0xFFFF) { ids.z = id; share.z = w; }
+                        else if (ids.w == 0xFFFF) { ids.w = id; share.w = w; }
+                    }
+                }
+                // Curved borders: raising the shares to a power sharpens the fade to a band
+                // around the contour where two classes' shares are equal (1 = plain blur).
+                float4 e = pow(max(share, 1e-6), _BorderCurve) * float4(ids != 0xFFFF);
+                e /= max(e.x + e.y + e.z + e.w, 1e-6);
+
+                uint4 pid = min(ids, 255u);
+                half4 p0 = LOAD_TEXTURE2D(_TerrainPalette, int2(pid.x, 0));
+                half4 p1 = LOAD_TEXTURE2D(_TerrainPalette, int2(pid.y, 0));
+                half4 p2 = LOAD_TEXTURE2D(_TerrainPalette, int2(pid.z, 0));
+                half4 p3 = LOAD_TEXTURE2D(_TerrainPalette, int2(pid.w, 0));
 
                 GroundUv g;
                 g.uv = i.uvDetail.xy;
@@ -216,18 +276,15 @@ Shader "CirrusFS/Terrain"
                 g.dy = ddy(g.uv);
                 g.macro = smoothstep(0.35, 0.65, nLarge.g * 0.5 + nMid.r * 0.5) * _TextureAntiTiling;
 
-                // texture each distinct class once (usually all four cells are the same class)
-                half3 a00 = ClassAlbedo(id00, p00.rgb, g);
-                half3 a10 = a00, a01 = a00, a11 = a00;
-                [branch] if (id10 != id00) a10 = ClassAlbedo(id10, p10.rgb, g);
-                [branch] if (id01 == id10) a01 = a10;
-                else if (id01 != id00) a01 = ClassAlbedo(id01, p01.rgb, g);
-                [branch] if (id11 == id10) a11 = a10;
-                else if (id11 == id01) a11 = a01;
-                else if (id11 != id00) a11 = ClassAlbedo(id11, p11.rgb, g);
+                // texture only the classes that show (usually just one)
+                half3 a0 = ClassAlbedo(pid.x, p0.rgb, g);
+                half3 a1 = a0, a2 = a0, a3 = a0;
+                [branch] if (e.y > 0.002) a1 = ClassAlbedo(pid.y, p1.rgb, g);
+                [branch] if (e.z > 0.002) a2 = ClassAlbedo(pid.z, p2.rgb, g);
+                [branch] if (e.w > 0.002) a3 = ClassAlbedo(pid.w, p3.rgb, g);
 
-                half3 albedo = lerp(lerp(a00, a10, f.x), lerp(a01, a11, f.x), f.y);
-                half water = lerp(lerp(p00.a, p10.a, f.x), lerp(p01.a, p11.a, f.x), f.y);
+                half3 albedo = a0 * e.x + a1 * e.y + a2 * e.z + a3 * e.w;
+                half water = p0.a * e.x + p1.a * e.y + p2.a * e.z + p3.a * e.w;
                 half luma = dot(albedo, half3(0.2126, 0.7152, 0.0722));
                 albedo = lerp(luma.xxx, albedo, _Saturation) * _Brightness;
 

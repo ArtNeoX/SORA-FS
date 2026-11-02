@@ -84,6 +84,8 @@ namespace CirrusFS.Geo
         static readonly int PaletteId = Shader.PropertyToID("_TerrainPalette");
         static readonly int DetailId = Shader.PropertyToID("_TerrainDetail");
         static readonly int ClassTexSizeId = Shader.PropertyToID("_TerrainClassTexSize");
+        static readonly int ClassApronId = Shader.PropertyToID("_TerrainClassApron");
+        static readonly int ClassCellsId = Shader.PropertyToID("_ClassCells");
         static readonly int ClassAlbedoId = Shader.PropertyToID("_TerrainClassAlbedo");
         static readonly int ClassParamsId = Shader.PropertyToID("_TerrainClassParams");
         static readonly int ClassTintId = Shader.PropertyToID("_TerrainClassTint");
@@ -202,7 +204,8 @@ namespace CirrusFS.Geo
             if (detail == null) detail = TerrainDetailTexture.Create(256);
             Shader.SetGlobalTexture(PaletteId, palette);
             Shader.SetGlobalTexture(DetailId, detail);
-            Shader.SetGlobalFloat(ClassTexSizeId, classTexels + 2);
+            Shader.SetGlobalFloat(ClassTexSizeId, classTexels + 2 * TerrainChunkBuilder.ClassApron);
+            Shader.SetGlobalFloat(ClassApronId, TerrainChunkBuilder.ClassApron);
             ApplyClassTextures();
         }
 
@@ -554,6 +557,19 @@ namespace CirrusFS.Geo
 
         // ---- building -------------------------------------------------------------
 
+        /// How a chunk's class texels sit on the tile's data cells, for the shader's smooth
+        /// blend: x = cells per texel, (y, z) = the cell coordinate of the chunk's south-west
+        /// corner modulo 1. Where texels are coarser than the cells, the texels act as cells.
+        Vector4 ClassCells(TerrainTileSource tile, int level, int x, int y)
+        {
+            double texelsPerDegree = (double)(1 << level) * classTexels;
+            double cellsPerTexel = tile.M / texelsPerDegree;
+            if (cellsPerTexel >= 1.0) return new Vector4(1f, 0f, 0f, 0f);
+            double cellsPerChunk = (double)tile.M / (1 << level);
+            double ox = x * cellsPerChunk, oy = y * cellsPerChunk;
+            return new Vector4((float)cellsPerTexel, (float)(ox - Math.Floor(ox)), (float)(oy - Math.Floor(oy)), 0f);
+        }
+
         Chunk Build(TerrainTileSource tile, int level, int x, int y)
         {
             Data.Touch(tile);
@@ -588,6 +604,7 @@ namespace CirrusFS.Geo
             renderer.receiveShadows = receiveShadows;
             block.Clear();
             block.SetTexture(ClassTexId, classTex);
+            block.SetVector(ClassCellsId, ClassCells(tile, level, x, y));
             renderer.SetPropertyBlock(block);
             renderer.enabled = false;
 

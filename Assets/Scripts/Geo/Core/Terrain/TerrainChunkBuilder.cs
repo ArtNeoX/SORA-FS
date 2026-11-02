@@ -17,9 +17,9 @@ namespace CirrusFS.Geo
         public Vector3[] DetailUv;
         public int[] Indices;
 
-        /// (texels + 2)^2 class ids, row 0 = south, with a one-texel apron taken from the
-        /// neighbouring cells (the next tile's, where it exists) so the shader's blend runs
-        /// across chunk and tile borders.
+        /// (texels + 2 * ClassApron)^2 class ids, row 0 = south, with an apron taken from the
+        /// neighbouring cells (the next tile's, where it exists) so the shader's warped blend
+        /// runs across chunk and tile borders.
         public byte[] ClassTexels;
         public int ClassTextureSize;
 
@@ -50,6 +50,11 @@ namespace CirrusFS.Geo
         /// integer fractions of it, so they stay seamless from chunk to chunk.
         public const double DetailPeriod = 4096.0;
 
+        /// Texels of neighbouring class data around each chunk's class texture, so the
+        /// shader's warped 4x4-cell lookup (two cells out, plus the warp, at up to ~2 texels
+        /// per cell) never runs off the edge.
+        public const int ClassApron = 8;
+
         /// Deepest level worth building for a tile: where vertex spacing reaches the height
         /// samples and class texels reach the class cells.
         public static int MaxUsefulLevel(TerrainTileSource tile, int resolution, int texels)
@@ -68,7 +73,7 @@ namespace CirrusFS.Geo
             int skirtCount = skirts ? 4 * r : 0;
             int vertexCount = gridCount + skirtCount;
             int indexCount = r * r * 6 + skirtCount * 6;
-            int texSize = texels + 2;
+            int texSize = texels + 2 * ClassApron;
 
             if (d.Vertices == null || d.Vertices.Length != vertexCount)
             {
@@ -167,8 +172,8 @@ namespace CirrusFS.Geo
                     Double3 rel = p - centre;
                     d.Vertices[v] = ToLocal(rel, ce, cn, cu);
                     d.Normals[v] = ToLocal(normal, ce, cn, cu);
-                    d.ClassUv[v] = new Vector2((float)((i * (double)texels / r + 1.0) / texSize),
-                                               (float)((j * (double)texels / r + 1.0) / texSize));
+                    d.ClassUv[v] = new Vector2((float)((i * (double)texels / r + ClassApron) / texSize),
+                                               (float)((j * (double)texels / r + ClassApron) / texSize));
                     d.DetailUv[v] = new Vector3((float)((lam * metresPerRad - offX) / DetailPeriod), detailY, (float)h);
 
                     double m2 = rel.SqrMagnitude;
@@ -228,14 +233,14 @@ namespace CirrusFS.Geo
                 }
             }
 
-            // ---- class texels (cell centres, plus a one-texel apron) -------------------
+            // ---- class texels (cell centres, plus an apron of ClassApron texels) --------
             double texel = size / texels;
             for (int b = 0; b < texSize; b++)
             {
-                double lat = lat0 + (b - 0.5) * texel;
+                double lat = lat0 + (b - ClassApron + 0.5) * texel;
                 for (int a = 0; a < texSize; a++)
                 {
-                    double lon = lon0 + (a - 0.5) * texel;
+                    double lon = lon0 + (a - ClassApron + 0.5) * texel;
                     d.ClassTexels[b * texSize + a] = set.ClassAt(lat, lon, tile);
                 }
             }

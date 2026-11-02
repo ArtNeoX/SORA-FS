@@ -155,8 +155,9 @@ grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
 - Normals use central differences in the vertex's own ENU frame. Across a tile edge they
   read the neighbouring tile.
 - Skirts cover cracks between chunks of different levels.
-- Each chunk carries a (64+2)² texture of class IDs. The extra one-texel border comes
-  from the neighbours.
+- Each chunk carries a (128+16)² texture of class IDs. The 8-texel border
+  (`ClassApron`) comes from the neighbours, so the shader's warped lookup never runs off
+  the edge.
 
 **Streaming (`World/Terrain/GlobeTerrain.cs`).**
 - A chunk splits while its vertex spacing, seen from the camera, exceeds `maxVertexAngle`
@@ -169,8 +170,20 @@ grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
   uses it to put a low spawn on the ground; the F1 window uses it to show AGL.
 
 **Shader (`World/Terrain/Terrain.shader`).**
-- It blends the colours of the four nearest class cells (palette from the manifest) with a
-  noise-warped lookup, so land types fade into each other.
+- **Land-class borders are curves, not cells.** For each pixel the shader takes each
+  class's share of a quadratic B-spline over the 3×3 nearest *data* cells. The shares are
+  raised to **Border sharpness** (`_BorderCurve`; 1 = soft blur, default 4) and used as
+  blend weights.
+  - Borders follow the contours of that smooth field: a lone cell becomes a small round
+    dot, a staircase a smooth diagonal, a one-cell river a winding line.
+  - The lookup runs on the data's own cells, whatever the chunk's texel size. GlobeTerrain
+    passes `_ClassCells` (cells per texel and the cell offset of the chunk's corner) for
+    each chunk. Mid-altitude chunks hold each 185 m cell in one or two texels, unevenly, and
+    blending in texels left irregular steps.
+- **Border warp** moves the lookup with Earth-anchored noise. The noise octaves are
+  weighted by how close their wavelength (4096, 1024, 256 or 32 m) is to four cells, using
+  the cell size on screen, so borders bend at every LOD without stippling.
+- Palette colours come from the manifest. Water is the palette alpha.
 - Detail noise is anchored to the Earth on a Mercator grid (conformal, so nothing is
   sheared), wrapped per chunk in double.
 - Steep slopes turn to rock.
@@ -210,11 +223,11 @@ ellipsoid heights, the same assumption as the h = 0 ocean (§1).
 - Every visible tile draws at least one chunk, so a whole-world data set seen from orbit
   would need a coarser tile level above 1°. From cruise altitude (10 km) only about 50
   tiles are within the horizon, so this matters only for the orbit view.
-- Land-class borders in a coarse (600/°) folder show a fine stipple from the border-warp
-  noise, which is sized for 30 m cells.
-- Class textures at coarse levels are point-sampled.
+- Class textures are point-sampled on coarse chunks, where a texel spans several data
+  cells. They're smoothed in texels there.
 - Ground textures have a seam along the antimeridian (180°), where the detail grid wraps.
-- The softest class blend is about one class cell wide (~30 m at 3600 cells/°).
+- A pixel blends at most four land classes. A fifth class in the same 3×3 cells is
+  dropped.
 - Chunks are built on the main thread, about 3 ms each, within a 4 ms budget per frame.
 
 ## 6. Autogen (objects by land class)
