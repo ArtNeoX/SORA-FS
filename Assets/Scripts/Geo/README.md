@@ -129,8 +129,19 @@ and the file format. The exporter writes 1° × 1° tiles named like X-Plane's (
 into `<project>/TerrainData`, which git ignores.
 
 **Data (`Core/Terrain/TerrainDataSet.cs`).**
-- Reads `manifest.json` from each folder in `GlobeTerrain.dataFolders`. Earlier folders
-  win, so a fine regional folder can sit in front of a coarse world folder.
+- Reads `manifest.json` from each folder in `GlobeTerrain.dataFolders` and from each of its
+  direct subfolders. The default is `TerrainData`, which typically holds `TerrainData/Global`
+  plus regional folders.
+- **Priority:** in every 1° cell the most detailed folder wins (more height samples per
+  degree, then more class cells). Equal detail keeps the list order.
+- **Edge blending:** where a detailed tile borders a cell that only a coarser folder
+  covers, the detailed tile's heights fade into that folder's surface for the same cell
+  (smoothstep over 8 coarse samples, at most 0.25°). They become exactly the coarse
+  surface on the edge.
+  - That coarse surface is the neighbour's own edge, so the two meet bit for bit.
+  - On real data, Korea at 1200/° against the 400/° base, the step would have been up to
+    33.5 m; it is now 0.0000 m at all 1,604 edge points tested.
+  - The covered coarse tiles stay loaded as blend targets (`AllTiles`).
 - Tile files are memory-mapped and opened on first use, so an open tile costs page cache,
   not managed memory. Idle tiles are closed again.
 - `SampleHeight` is the tile's bilinear surface. `ClassAt` returns the class cell.
@@ -197,7 +208,10 @@ ellipsoid heights, the same assumption as the h = 0 ocean (§1).
 
 **Known limits.**
 - Every visible tile draws at least one chunk, so a whole-world data set seen from orbit
-  would need a coarser tile level above 1°.
+  would need a coarser tile level above 1°. From cruise altitude (10 km) only about 50
+  tiles are within the horizon, so this matters only for the orbit view.
+- Land-class borders in a coarse (600/°) folder show a fine stipple from the border-warp
+  noise, which is sized for 30 m cells.
 - Class textures at coarse levels are point-sampled.
 - Ground textures have a seam along the antimeridian (180°), where the detail grid wraps.
 - The softest class blend is about one class cell wide (~30 m at 3600 cells/°).

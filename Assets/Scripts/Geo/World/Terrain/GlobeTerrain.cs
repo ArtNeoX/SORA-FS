@@ -30,8 +30,9 @@ namespace CirrusFS.Geo
         /// The terrain in the scene, for ground-height queries (spawning, readouts).
         public static GlobeTerrain Active { get; private set; }
 
-        [Tooltip("Exporter output folders, searched in order: put a fine regional folder before " +
-                 "a coarse world one. Relative paths are relative to the project folder (the " +
+        [Tooltip("Exporter output folders, or parents of them (their direct subfolders are read " +
+                 "too, e.g. TerrainData/Global and TerrainData/Tokyo). In every 1° cell the most " +
+                 "detailed folder wins. Relative paths are relative to the project folder (the " +
                  "folder holding the player executable in a build).")]
         public string[] dataFolders = { "TerrainData" };
 

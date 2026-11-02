@@ -34,8 +34,8 @@ Shader "CirrusFS/Terrain"
         _ShoreHeight ("Shore below height (m)", Float) = 3
 
         [Header(Class blending)]
-        _BlendSharpness ("Blend sharpness (1 = linear)", Range(1, 4)) = 1.2
-        _BlendWarp ("Border warp (cells)", Range(0, 1.5)) = 0.9
+        _BlendSharpness ("Blend sharpness (1 = linear)", Range(0.1, 4)) = 1.2
+        _BlendWarp ("Border warp (cells)", Range(0, 10)) = 0.9
 
         [Header(Ground textures)]
         _TextureAntiTiling ("Anti-tiling mix", Range(0, 1)) = 0.5

@@ -65,17 +65,60 @@ py -3.13 terrain_exporter.py --config settings_korea.json --nogui --download
 
 ### Choosing a resolution (fixed per output folder)
 
-| Height samples / ° | Spacing at 37° N | Per tile | Korea (~30 land tiles) | Whole world (~19 k land tiles) |
+A tile holds `(n+1)² × 2` bytes of heights plus `m²` bytes of land class. The world has
+**26,475 land tiles** (Copernicus' own count; open-sea cells are not exported).
+
+| Use | Height / ° (spacing) | Class / ° (cell) | Per tile | World |
 |---|---|---|---|---|
-| 3600 (1″, Copernicus native) | 31 × 25 m | 26 MB | 0.8 GB | 490 GB |
-| 1200 (3″, default) | 92 × 74 m | 2.9 MB | 90 MB | 55 GB |
-| 300 | 370 × 300 m | 0.2 MB | 5 MB | 3.5 GB |
+| Detailed region (`settings_korea.json`) | 1200 (~90 m) | 3600 (~30 m) | 15.8 MB | 420 GB |
+| **Global base (`settings_global.json`)** | 400 (~280 m) | 600 (~185 m) | 0.68 MB | **18 GB** |
+| Smaller global base | 300 (~370 m) | 600 (~185 m) | 0.54 MB | 14 GB |
 
-Land class adds `m²` bytes per tile. That is 13 MB at the default of 3600 cells per
-degree, or 0.36 MB at 600.
+Previews add about 2 MB per tile; the global settings turn them off.
 
-A practical setup is one coarse world folder plus a fine folder for the area you fly in.
-The Unity loader can prefer the fine folder where it has a tile.
+## Global base plus detailed regions
+
+The intended setup, for a small install that still covers the world:
+
+```
+TerrainData/
+  Global/     whole world at 400 / 600   (~18 GB)
+  Korea/      detailed region at 1200 / 3600
+  Tokyo/      ...
+```
+
+The Unity loader reads every output folder inside `TerrainData` and **draws the most
+detailed tile of each 1° cell**. Where a detailed tile borders a global-only cell, its
+heights fade into the global surface over about 2 km, so the two meet without a step. Each
+folder has its own resolution; only the class list must be the same (keep the defaults).
+
+**Exporting the world**
+
+1. Load `settings_global.json`. It selects the whole world, GLO-90, no OSM, no previews,
+   output `TerrainData/Global`, and **Overwrite off**, so a cancelled run resumes where it
+   stopped.
+2. **Download sources**, once. 71 GB of GLO-90 DEM (26,475 files) and 124 GB of WorldCover
+   (2,651 files), so about 196 GB of temporary disk. The download uses Copernicus' tile
+   list and the WorldCover listing, so open-sea cells are never requested, and it fetches
+   6 files at once (**Parallel** on the Sources tab). Cancel and press it again at any
+   time: finished files are kept.
+3. **Export tiles.** Roughly 0.4 s per tile with 4 workers, so 3–4 hours for the world.
+   It runs in 10° blocks, each reading only its own coastline, and saves the manifest
+   every 30 s.
+4. After the export, the 196 GB of sources can be deleted. Keep them only if you plan to
+   re-export at another resolution.
+
+**Adding a detailed region** (a city, a country): use `settings_korea.json` as a
+template, set the region box, and set the output folder to a new folder inside
+`TerrainData`, such as `TerrainData/Tokyo`. Use GLO-30 and an OSM extract for the best
+detail.
+
+**Exporting at world scale.**
+- The coastline shapefile is converted once to a GeoPackage beside it, which has a spatial
+  index, so each block reads only its own polygons.
+- Source headers are cached in `<output>/_source_index.json`.
+- Land cover is read from WorldCover's built-in overviews when the output is much coarser
+  than 10 m, for example the 8× overview for 600 cells/°.
 
 ## Source data
 
@@ -161,14 +204,15 @@ file stores hard class IDs, so the blend can be tuned without re-exporting.
 
 ## Unity
 
-Export into `G:/Unity/CirrusFS/TerrainData` and press Play: the `Terrain` object in
-`Flight.unity` (`GlobeTerrain`) reads `TerrainData/manifest.json` at start. No import step,
-and no Unity restart after exporting more tiles (a new play session picks them up).
+Export into `G:/Unity/CirrusFS/TerrainData` or a folder inside it, and press Play. The
+`Terrain` object in `Flight.unity` (`GlobeTerrain`) reads every `manifest.json` in
+`TerrainData` and its direct subfolders at start. There's no import step, and no Unity
+restart after exporting more tiles: a new play session picks them up.
 
 - The loader lives in `Assets/Scripts/Geo` (`Core/Terrain`, `World/Terrain`). It is described in
   `Assets/Scripts/Geo/README.md` §5: quadtree LOD per tile, chunks placed through the floating
   origin, collision under the aircraft, class-blending shader.
-- Several folders can be listed in `GlobeTerrain.dataFolders` (earlier ones win), e.g. a fine
-  Korea folder in front of a coarse world folder.
+- The most detailed folder wins in every cell, whatever the folders are called. Equal
+  detail falls back to the order in `GlobeTerrain.dataFolders`.
 - F1 in flight shows the ground height, AGL, current tile and the terrain chunk counts.
 - `TerrainTiles.cs` here is a minimal standalone reader of the format, kept for reference.

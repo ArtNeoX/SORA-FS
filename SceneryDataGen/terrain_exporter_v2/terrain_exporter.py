@@ -38,10 +38,11 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from collections import OrderedDict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field, fields
 
 import numpy as np
@@ -147,7 +148,11 @@ PRESETS = {
     "Busan / Gimhae": (128.0, 35.0, 130.0, 36.0),
     "Jeju": (126.0, 33.0, 127.0, 34.0),
     "South Korea (all)": (124.0, 33.0, 131.0, 39.0),
+    "Whole world (global base)": (-180.0, -90.0, 180.0, 90.0),
 }
+
+# Copernicus has a DEM for every land cell and none for open sea.
+COPERNICUS_LAND_TILES = 26475
 
 RESAMPLING = {
     "auto": None,  # average when shrinking the source, cubic when enlarging it
@@ -164,8 +169,9 @@ COPERNICUS = {  # product -> (bucket, resolution code in the file name)
     "GLO-30": ("https://copernicus-dem-30m.s3.amazonaws.com", "10"),
     "GLO-90": ("https://copernicus-dem-90m.s3.amazonaws.com", "30"),
 }
-WORLDCOVER_URL = ("https://esa-worldcover.s3.eu-central-1.amazonaws.com/v200/2021/map/"
-                  "ESA_WorldCover_10m_2021_v200_{}_Map.tif")
+WORLDCOVER_BUCKET = "https://esa-worldcover.s3.eu-central-1.amazonaws.com"
+WORLDCOVER_PREFIX = "v200/2021/map/"
+WORLDCOVER_URL = WORLDCOVER_BUCKET + "/" + WORLDCOVER_PREFIX + "ESA_WorldCover_10m_2021_v200_{}_Map.tif"
 LAND_POLYGONS_URL = "https://osmdata.openstreetmap.de/download/land-polygons-split-4326.zip"
 GEOFABRIK_URL = "https://download.geofabrik.de/{}-latest.osm.pbf"
 
@@ -194,6 +200,7 @@ class Settings:
     download_landcover: bool = True
     download_coastline: bool = True
     osm_extract: str = ""
+    download_threads: int = 6
 
     classes: str = DEFAULT_CLASSES
     lut: str = DEFAULT_LUT
@@ -398,27 +405,95 @@ def _ew(lon: int) -> str:
     return f"{'E' if lon >= 0 else 'W'}{abs(lon):03d}"
 
 
-def source_downloads(s: Settings) -> list[tuple[str, str, str]]:
+def _cached_text(url: str, path: str, log, max_age_days: float = 30.0) -> str | None:
+    """A small text file from the web, kept in the download folder for a month."""
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age_days * 86400:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "CirrusFS-terrain-exporter"})
+        with urllib.request.urlopen(req, timeout=60, context=_ssl_context()) as r:
+            text = r.read().decode("utf-8")
+    except (urllib.error.URLError, OSError) as e:
+        if os.path.exists(path):
+            log(f"  could not refresh {url} ({getattr(e, 'reason', e)}); using the saved copy")
+            with open(path, encoding="utf-8") as f:
+                return f.read()
+        log(f"  could not read {url} ({getattr(e, 'reason', e)}); trying every cell instead")
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return text
+
+
+def _copernicus_names(s: Settings, log) -> set | None:
+    """Names of the DEM tiles that exist (every land cell), from Copernicus' own list, so
+    the ~38,000 open-sea cells of the world are never requested."""
+    host, _ = COPERNICUS[s.dem_product]
+    text = _cached_text(host + "/tileList.txt",
+                        os.path.join(s.download_dir, f"copernicus_{s.dem_product.lower()}",
+                                     "tileList.txt"), log)
+    return None if text is None else {ln.strip() for ln in text.splitlines() if ln.strip()}
+
+
+def _worldcover_keys(s: Settings, log) -> set | None:
+    """Grid keys (e.g. N36E126) of the WorldCover files that exist, from the bucket listing."""
+    path = os.path.join(s.download_dir, "worldcover", "_tiles.txt")
+    if os.path.exists(path) and time.time() - os.path.getmtime(path) < 30 * 86400:
+        with open(path, encoding="utf-8") as f:
+            return {ln.strip() for ln in f if ln.strip()}
+    keys, token = set(), None
+    try:
+        while True:
+            q = {"list-type": "2", "max-keys": "1000", "prefix": WORLDCOVER_PREFIX}
+            if token:
+                q["continuation-token"] = token
+            url = WORLDCOVER_BUCKET + "/?" + urllib.parse.urlencode(q)
+            with urllib.request.urlopen(url, timeout=60, context=_ssl_context()) as r:
+                xml = r.read().decode("utf-8")
+            keys.update(re.findall(r"_v200_([NS]\d\d[EW]\d\d\d)_Map\.tif</Key>", xml))
+            m = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", xml)
+            if not m:
+                break
+            token = m.group(1)
+    except (urllib.error.URLError, OSError) as e:
+        log(f"  could not list WorldCover files ({getattr(e, 'reason', e)}); trying every cell")
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(sorted(keys)))
+    return keys
+
+
+def source_downloads(s: Settings, log=print) -> list[tuple[str, str, str]]:
     """(kind, url, local path) for everything the region needs.
 
     DEM tiles include a one-tile ring around the region: the height samples on a tile's
     edge average source pixels from both sides, so the neighbour's DEM must be present
-    for the edge to come out identical to the one the neighbour will get later."""
+    for the edge to come out identical to the one the neighbour will get later.
+    Cells the providers' lists show as open sea are left out."""
     tiles = region_tiles(s)
     jobs = []
     host, code = COPERNICUS[s.dem_product]
+    names = _copernicus_names(s, log)
     ring = sorted({(la + dy, (lo + dx + 180) % 360 - 180)
                    for la, lo in tiles for dy in (-1, 0, 1) for dx in (-1, 0, 1)
                    if -90 <= la + dy <= 89})
     for la, lo in ring:
         name = f"Copernicus_DSM_COG_{code}_{_ns(la)}_00_{_ew(lo)}_00_DEM"
+        if names is not None and name not in names:
+            continue
         jobs.append(("dem", f"{host}/{name}/{name}.tif",
                      os.path.join(s.download_dir, f"copernicus_{s.dem_product.lower()}",
                                   name + ".tif")))
     if s.download_landcover:
+        have = _worldcover_keys(s, log)
         cells = sorted({(math.floor(la / 3) * 3, math.floor(lo / 3) * 3) for la, lo in tiles})
         for la, lo in cells:
             key = _ns(la) + _ew(lo)
+            if have is not None and key not in have:
+                continue
             jobs.append(("landcover", WORLDCOVER_URL.format(key),
                          os.path.join(s.download_dir, "worldcover",
                                       f"ESA_WorldCover_10m_2021_v200_{key}_Map.tif")))
@@ -500,34 +575,58 @@ def run_downloads(s: Settings, log, progress, cancel: threading.Event) -> dict |
     if s.dem_product not in COPERNICUS:
         log(f"ERROR: unknown DEM product {s.dem_product!r}.")
         return None
-    jobs = source_downloads(s)
-    log(f"{len(jobs)} source files for '{s.region_name}' -> {s.download_dir}")
+    jobs = source_downloads(s, log)
+    have = sum(os.path.exists(p) for _, _, p in jobs)
+    log(f"{len(jobs)} source files for '{s.region_name}' -> {s.download_dir} "
+        f"({have} already here)")
     found = {"dem_files": [], "landcover_files": [], "land_polygons": "", "osm_file": ""}
     no_data = 0
     failed = []
-    for i, (kind, url, path) in enumerate(jobs):
-        if cancel.is_set():
-            log("Download cancelled.")
-            return None
-        progress(i, len(jobs))
+
+    def fetch_one(job):
+        """Runs on a download thread: 'ok', 'nodata', 'cancelled' or the exception."""
+        _, url, path = job
         missing_marker = path + ".nodata"   # remembered 404s (open sea), so reruns skip them
         if os.path.exists(missing_marker):
+            return "nodata"
+        if os.path.exists(path):
+            return "ok"
+        if cancel.is_set():
+            return "cancelled"
+        try:
+            fetched = _fetch(url, path, log, cancel)
+        except (urllib.error.URLError, OSError) as e:
+            return e
+        if not fetched:
+            if cancel.is_set():
+                return "cancelled"
+            open(missing_marker, "w").close()
+            return "nodata"
+        return "ok"
+
+    # several files at once: the servers are fast, one connection is not
+    results = {}
+    with ThreadPoolExecutor(max_workers=max(1, int(s.download_threads))) as pool:
+        futures = {pool.submit(fetch_one, job): job for job in jobs}
+        for i, fut in enumerate(as_completed(futures)):
+            results[futures[fut]] = fut.result()
+            progress(i + 1, len(jobs))
+    if cancel.is_set():
+        log("Download cancelled.")
+        return None
+
+    for kind, url, path in jobs:
+        res = results[(kind, url, path)]
+        if isinstance(res, BaseException):
+            # one unreachable server must not cost the files the others can give
+            log(f"  FAILED {os.path.basename(path)}: {getattr(res, 'reason', res)}")
+            failed.append((os.path.basename(path), url))
+            continue
+        if res == "nodata":
             no_data += 1
             continue
-        if not os.path.exists(path):
-            try:
-                fetched = _fetch(url, path, log, cancel)
-            except (urllib.error.URLError, OSError) as e:
-                # one unreachable server must not cost the files the others can give
-                log(f"  FAILED {os.path.basename(path)}: {getattr(e, 'reason', e)}")
-                failed.append((os.path.basename(path), url))
-                continue
-            if not fetched:
-                if cancel.is_set():
-                    continue
-                open(missing_marker, "w").close()
-                no_data += 1
-                continue
+        if res != "ok":
+            continue
         if kind == "dem":
             found["dem_files"].append(path)
         elif kind == "landcover":
@@ -543,7 +642,6 @@ def run_downloads(s: Settings, log, progress, cancel: threading.Event) -> dict |
                     z.extractall(s.download_dir)
                 shp = _find_shp(folder)
             found["land_polygons"] = shp
-    progress(len(jobs), len(jobs))
     log(f"Sources ready: {len(found['dem_files'])} DEM, {len(found['landcover_files'])} land "
         f"cover, coastline {'yes' if found['land_polygons'] else 'no'}, "
         f"OSM {'yes' if found['osm_file'] else 'no'}"
@@ -569,14 +667,108 @@ def merge_found(s: Settings, found: dict) -> None:
 # Source index: opened once, so workers only open the files a tile touches
 # --------------------------------------------------------------------------
 
-def index_rasters(paths: list[str]) -> list[dict]:
-    out = []
-    for p in paths:
+def index_rasters(paths: list[str], cache_path: str = "", log=None) -> list[dict]:
+    """Header facts of every source raster. Opening 26,000 world DEM files takes minutes,
+    so the facts are kept in `cache_path` and reused while a file's size and date match."""
+    cache = {}
+    if cache_path and os.path.exists(cache_path):
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                cache = json.load(f)
+        except (OSError, ValueError):
+            cache = {}
+    out, changed = [], False
+    for i, p in enumerate(paths):
+        st = os.stat(p)
+        stamp = [st.st_size, int(st.st_mtime)]
+        hit = cache.get(p)
+        if hit and hit.get("stamp") == stamp and "ovr" in hit["entry"]:
+            out.append(hit["entry"])
+            continue
         with rasterio.open(p) as ds:
-            out.append({"path": p, "crs": ds.crs.to_wkt(), "bounds": tuple(ds.bounds),
-                        "res": (abs(ds.transform.a), abs(ds.transform.e)),
-                        "geographic": bool(ds.crs.is_geographic), "dtype": ds.dtypes[0]})
+            e = {"path": p, "crs": ds.crs.to_wkt(), "bounds": tuple(ds.bounds),
+                 "res": (abs(ds.transform.a), abs(ds.transform.e)),
+                 "width": ds.width, "height": ds.height, "ovr": ds.overviews(1),
+                 "geographic": bool(ds.crs.is_geographic), "dtype": ds.dtypes[0]}
+        out.append(e)
+        cache[p] = {"stamp": stamp, "entry": e}
+        changed = True
+        if log and (i + 1) % 2000 == 0:
+            log(f"  indexed {i + 1} / {len(paths)} rasters")
+    if cache_path and changed:
+        tmp = cache_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cache, f)
+        os.replace(tmp, cache_path)
     return out
+
+
+class RasterIndex:
+    """Source rasters by the 1° cells they touch, so a tile only looks at its own few
+    files instead of all 26,000 of a world export. Rasters in a projected CRS are always
+    returned (they are regional, and few)."""
+
+    def __init__(self, entries: list[dict]):
+        self.entries = list(entries)
+        self.cells: dict = {}
+        self.other: list[int] = []
+        for i, e in enumerate(self.entries):
+            if e["geographic"]:
+                l, b, r, t = e["bounds"]
+                for la in range(math.floor(b), math.ceil(t)):
+                    for lo in range(math.floor(l), math.ceil(r)):
+                        self.cells.setdefault((la, lo), []).append(i)
+            else:
+                self.other.append(i)
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __iter__(self):
+        return iter(self.entries)
+
+    def __getitem__(self, i):
+        return self.entries[i]
+
+    def query(self, bounds) -> list[dict]:
+        """Entries that may overlap bounds (lon/lat: west, south, east, north)."""
+        l, b, r, t = bounds
+        ids = set(self.other)
+        for la in range(math.floor(b), math.ceil(t)):
+            for lo in range(math.floor(l), math.ceil(r)):
+                ids.update(self.cells.get((la, lo), ()))
+        return [self.entries[i] for i in sorted(ids)]
+
+    def subset(self, bounds) -> "RasterIndex":
+        return RasterIndex(self.query(bounds))
+
+    def covers_cell(self, lat: int, lon: int) -> bool:
+        """True if some raster really covers the cell (not just its edge pixels)."""
+        for e in self.query((lon, lat, lon + 1, lat + 1)):
+            if not e["geographic"]:
+                return True
+            l, b, r, t = e["bounds"]
+            if min(r, lon + 1) - max(l, lon) > 0.01 and min(t, lat + 1) - max(b, lat) > 0.01:
+                return True
+        return False
+
+
+def overview_level(e: dict, dst_px: float) -> tuple[int, tuple[float, float]]:
+    """Coarsest level of a raster that still has two pixels per output pixel: 0 = full
+    resolution, k = the file's k-th overview. Returns (level, pixel size). WorldCover's
+    10 m pixels read at full resolution for a 185 m grid would cost 300 times the work for
+    the same mode result. Both neighbours of a tile edge pick the same level, so edges
+    still match."""
+    rx, ry = e["res"]
+    best = (0, (rx, ry))
+    if not e.get("geographic"):
+        return best
+    for k, f in enumerate(e.get("ovr") or []):
+        ox = e["width"] * rx / math.ceil(e["width"] / f)     # GDAL: overview size = ceil(n / f)
+        oy = e["height"] * ry / math.ceil(e["height"] / f)
+        if max(ox, oy) * 2.0 <= dst_px * (1 + 1e-9):
+            best = (k + 1, (ox, oy))
+    return best
 
 
 # --------------------------------------------------------------------------
@@ -619,6 +811,39 @@ def _read_polys(path, layer, clip_box, log, per_feature=None):
             if n % 20000 == 0:
                 log(f"  ... {n} polygons")
             yield g, props
+
+
+def indexed_vector(path: str, log) -> str:
+    """A shapefile converted once to a GeoPackage beside it. The GeoPackage's R-tree lets a
+    10° block read just its own polygons; the world coastline shapefile has no spatial
+    index, so every block would otherwise scan all 1.3 GB of it."""
+    if not path.lower().endswith(".shp"):
+        return path
+    gpkg = os.path.splitext(path)[0] + ".gpkg"
+    if os.path.exists(gpkg) and os.path.getmtime(gpkg) >= os.path.getmtime(path):
+        return gpkg
+    log(f"Converting {os.path.basename(path)} to GeoPackage (once, a few minutes) ...")
+    tmp = os.path.splitext(path)[0] + "_converting.gpkg"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    with fiona.open(path) as src:
+        meta = dict(src.meta)
+        meta["driver"] = "GPKG"
+        meta["schema"] = {**meta["schema"], "geometry": "Unknown"}
+        with fiona.open(tmp, "w", **meta) as dst:
+            batch = []
+            for i, feat in enumerate(src):
+                batch.append(feat)
+                if len(batch) == 5000:
+                    dst.writerecords(batch)
+                    batch.clear()
+                if (i + 1) % 100000 == 0:
+                    log(f"  {i + 1} polygons")
+            if batch:
+                dst.writerecords(batch)
+    os.replace(tmp, gpkg)
+    log(f"  wrote {gpkg}")
+    return gpkg
 
 
 def prepare_vectors(s: Settings, tiles, cache_path: str, log) -> None:
@@ -703,9 +928,12 @@ class Exporter:
             dt = np.dtype(np.int32)
         self.lc_dtype = dt
 
-    def _ds(self, path):
-        ds = self.open_files.pop(path, None) or rasterio.open(path)
-        self.open_files[path] = ds
+    def _ds(self, path, level=0):
+        key = (path, level)
+        ds = self.open_files.pop(key, None)
+        if ds is None:
+            ds = rasterio.open(path, overview_level=level - 1) if level > 0 else rasterio.open(path)
+        self.open_files[key] = ds
         while len(self.open_files) > self.MAX_OPEN:
             self.open_files.popitem(last=False)[1].close()
         return ds
@@ -729,17 +957,23 @@ class Exporter:
         # Mixed lattices (Copernicus gets coarser east-west above 50° N) are never
         # resampled onto each other, because that would depend on the read window and
         # two neighbouring tiles would disagree on their shared edge.
+        # Each source is read at the coarsest overview that keeps two source pixels per
+        # output pixel; a level is a lattice of its own.
+        pad_deg = 0.05 + 3 * dst_px
         groups = {}
-        for e in index:
-            rx, ry = e["res"]
+        for e in index.query((bounds[0] - pad_deg, bounds[1] - pad_deg,
+                              bounds[2] + pad_deg, bounds[3] + pad_deg)):
+            level, (rx, ry) = overview_level(e, dst_px)
             key = (e["crs"], round(rx, 12), round(ry, 12),
-                   round((e["bounds"][0] / rx) % 1.0, 4), round((e["bounds"][3] / ry) % 1.0, 4))
+                   round((e["bounds"][0] / rx) % 1.0, 4), round((e["bounds"][3] / ry) % 1.0, 4),
+                   level)
             groups.setdefault(key, []).append(e)
         # finest lattice first: where two lattices both have data, the finer one wins
         for key in sorted(groups, key=lambda k: (k[1] * k[2], k)):
             group = groups[key]
             crs_wkt = key[0]
-            rx, ry = group[0]["res"]
+            level = key[5]
+            rx, ry = overview_level(group[0], dst_px)[1]
             pad = 3 * dst_px
             sb = transform_bounds(WGS84, crs_wkt, bounds[0] - pad, bounds[1] - pad,
                                   bounds[2] + pad, bounds[3] + pad, densify_pts=21)
@@ -755,7 +989,7 @@ class Exporter:
                   top - math.ceil((top - sb[1]) / ry) * ry,
                   left + math.ceil((sb[2] - left) / rx) * rx,
                   top - math.floor((top - sb[3]) / ry) * ry)
-            datasets = [self._ds(e["path"]) for e in hits]
+            datasets = [self._ds(e["path"], level) for e in hits]
             arr, tr = rasterio.merge.merge(datasets, bounds=sb, res=(rx, ry),
                                            nodata=nodata, dtype=dtype)
 
@@ -828,10 +1062,11 @@ class Exporter:
         # Land class: m^2 cells, each owned by exactly one tile. Read in strips so a
         # 10 m land-cover source never has to be held for the whole degree at once.
         c_tr = from_origin(lon, lat + 1, cd, cd)
-        if self.lc:
+        lc_here = self.lc.query((lon - 0.05, lat - 0.05, lon + 1.05, lat + 1.05)) if self.lc else []
+        if lc_here:
             nd = s.landcover_nodata
-            src_px = min(max(e["res"]) if e["geographic"] else max(e["res"]) / 111320.0
-                         for e in self.lc)
+            src_px = min(max(overview_level(e, cd)[1]) if e["geographic"] else max(e["res"]) / 111320.0
+                         for e in lc_here)
             rows = max(1, int(m * 40e6 * src_px * src_px))
             raw = np.empty((m, m), self.lc_dtype)
             for r0 in range(0, m, rows):
@@ -999,16 +1234,25 @@ def run_export(s: Settings, log, progress, cancel: threading.Event) -> bool:
         return True
 
     t0 = time.time()
-    log("Indexing sources ...")
-    dem_index = index_rasters(s.dem_files)
-    lc_index = index_rasters(s.landcover_files)
+    log(f"Indexing {len(s.dem_files) + len(s.landcover_files)} source rasters ...")
+    index_cache = os.path.join(s.output_dir, "_source_index.json")
+    dem_index = RasterIndex(index_rasters(s.dem_files, index_cache, log))
+    lc_index = RasterIndex(index_rasters(s.landcover_files, index_cache, log))
+    if s.skip_sea_tiles:
+        # a cell without any DEM is open sea (Copernicus has a tile for every land cell)
+        before = len(todo)
+        todo = [(la, lo) for la, lo in todo if dem_index.covers_cell(la, lo)]
+        if before != len(todo):
+            log(f"{before - len(todo)} cells have no DEM (open sea): skipped. {len(todo)} to export.")
+    if s.land_polygons:
+        s = Settings.from_dict({**asdict(s), "land_polygons": indexed_vector(s.land_polygons, log)})
     cache_path = os.path.join(s.output_dir, "_vector_cache.pkl")
-    prepare_vectors(s, todo, cache_path, log)
     if cancel.is_set():
         return False
 
     results = dict(existing)
     done = skipped = failed = 0
+    last_save = [time.time()]
 
     def save_manifest():
         m = dict(header)
@@ -1038,28 +1282,52 @@ def run_export(s: Settings, log, progress, cancel: threading.Event) -> bool:
             log(f"  {res['id']}  land {res['landFraction'] * 100:5.1f} %   "
                 f"heights {res['hMin']:.0f} .. {res['hMax']:.0f} m")
         progress(done, len(todo))
-        if done % 20 == 0:
+        # the manifest of a world export is megabytes: rewrite it every half minute, so a
+        # cancelled or crashed run keeps its tiles (re-run with overwrite off to resume)
+        if time.time() - last_save[0] > 30:
             save_manifest()
+            last_save[0] = time.time()
 
-    workers = max(1, min(int(s.workers), len(todo)))
-    log(f"Exporting with {workers} worker(s)...")
-    init_args = (asdict(s), cache_path, dem_index, lc_index)
-    if workers == 1:
-        _init_worker(*init_args)
-        for la, lo in todo:
-            if cancel.is_set():
-                break
-            handle(_run_tile(la, lo))
-    else:
-        with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
-                                 initargs=init_args) as pool:
-            futs = [pool.submit(_run_tile, la, lo) for la, lo in todo]
-            for fut in as_completed(futs):
-                handle(fut.result())
+    # 10° blocks: each reads only its own coastline and OSM polygons, and the workers only
+    # get the sources around it, so a world export needs no more memory than a region.
+    blocks: dict = {}
+    for la, lo in todo:
+        blocks.setdefault((math.floor(la / 10), math.floor(lo / 10)), []).append((la, lo))
+    worker_settings = {**asdict(s), "dem_files": [], "landcover_files": []}
+    workers = max(1, min(int(s.workers), len(todo) or 1))
+    log(f"Exporting {len(todo)} tiles in {len(blocks)} block(s) of 10° with {workers} worker(s)...")
+
+    for bi, key in enumerate(sorted(blocks)):
+        if cancel.is_set():
+            break
+        tiles = blocks[key]
+        if len(blocks) > 1:
+            log(f"Block {bi + 1}/{len(blocks)}: {tile_name(key[0] * 10, key[1] * 10)} "
+                f"({len(tiles)} tiles)")
+        prepare_vectors(s, tiles, cache_path, log)
+        la0 = min(la for la, _ in tiles) - 1
+        la1 = max(la for la, _ in tiles) + 2
+        lo0 = min(lo for _, lo in tiles) - 1
+        lo1 = max(lo for _, lo in tiles) + 2
+        init_args = (worker_settings, cache_path, dem_index.subset((lo0, la0, lo1, la1)),
+                     lc_index.subset((lo0, la0, lo1, la1)))
+        n = max(1, min(workers, len(tiles)))
+        if n == 1:
+            _init_worker(*init_args)
+            for la, lo in tiles:
                 if cancel.is_set():
-                    for f in futs:
-                        f.cancel()
                     break
+                handle(_run_tile(la, lo))
+        else:
+            with ProcessPoolExecutor(max_workers=n, initializer=_init_worker,
+                                     initargs=init_args) as pool:
+                futs = [pool.submit(_run_tile, la, lo) for la, lo in tiles]
+                for fut in as_completed(futs):
+                    handle(fut.result())
+                    if cancel.is_set():
+                        for f in futs:
+                            f.cancel()
+                        break
 
     save_manifest()
     try:
@@ -1242,11 +1510,11 @@ def run_gui(initial: Settings, config_path: str | None):
                                    "same output folder)")
     grd.pack(fill="x", padx=8, pady=6)
     row(grd, 0, "Height samples per degree", "height_per_deg", s.height_per_deg,
-        choices=[300, 600, 1200, 1800, 3600],
-        tip="3600 = 1″ (~30 m, Copernicus native), 1200 = 3″ (~90 m)")
+        choices=[300, 400, 600, 1200, 1800, 3600],
+        tip="3600 = 1″ (~30 m, GLO-30), 1200 = 3″ (~90 m, GLO-90), 400 = global base")
     row(grd, 1, "Land-class cells per degree", "class_per_deg", s.class_per_deg,
         choices=[600, 1200, 1800, 3600, 7200],
-        tip="3600 = 1″ (~30 m); WorldCover itself is 12000")
+        tip="3600 = 1″ (~30 m), 600 = global base; WorldCover itself is 12000")
 
     info = ttk.Label(tab, text="", foreground="#2a6", justify="left")
     info.pack(fill="x", padx=14, pady=10)
@@ -1272,6 +1540,9 @@ def run_gui(initial: Settings, config_path: str | None):
     ttk.Entry(opts, textvariable=var_for("osm_extract", s.osm_extract), width=18).pack(
         side="left")
     ttk.Label(opts, text="e.g. asia/south-korea", foreground="#777").pack(side="left", padx=4)
+    ttk.Label(opts, text="Parallel").pack(side="left", padx=(8, 4))
+    ttk.Entry(opts, textvariable=var_for("download_threads", s.download_threads), width=4).pack(
+        side="left")
 
     file_list(tab, "Elevation (DEM) rasters, e.g. Copernicus GLO-30 GeoTIFFs", "dem_files",
               s.dem_files, (".tif", ".tiff", ".vrt", ".img", ".hgt", ".dem"))
@@ -1406,7 +1677,11 @@ def run_gui(initial: Settings, config_path: str | None):
             mid = (sv.min_lat + sv.max_lat) / 2
             hy, hx = spacing_m(n, mid)
             cy, cx = spacing_m(m, mid)
-            mb = len(tiles) * ((n + 1) ** 2 * 2 + m * m) / 1e6
+            per_tile = ((n + 1) ** 2 * 2 + m * m) / 1e6
+            world = len(tiles) >= 360 * 180
+            land = COPERNICUS_LAND_TILES if world else len(tiles)
+            mb = land * per_tile
+            size = f"{mb / 1000:,.1f} GB" if mb >= 1000 else f"{mb:,.0f} MB"
             step = (sv.height_max - sv.height_min) / 65535 * 100
             names = " ".join(tile_name(la, lo) for la, lo in tiles[:10])
             if len(tiles) > 10:
@@ -1415,8 +1690,9 @@ def run_gui(initial: Settings, config_path: str | None):
                 f"{len(tiles)} tiles: {names}\n"
                 f"Heights {n + 1}×{n + 1} per tile, {hy:.0f} m N-S × {hx:.0f} m E-W apart at "
                 f"{mid:.1f}°.   Land class {m}×{m}, {cy:.0f} × {cx:.0f} m cells.\n"
-                f"≈ {mb:,.0f} MB raw if every tile is land.   "
-                f"Height precision {step:.1f} cm."), foreground="#2a6")
+                f"{per_tile * 1000:,.0f} KB per tile: ≈ {size} "
+                f"{'for the 26,475 land tiles of the world' if world else 'if every tile is land'}"
+                f" (previews not counted).   Height precision {step:.1f} cm."), foreground="#2a6")
         except Exception as e:
             info.configure(text=f"⚠ {e}", foreground="#c33")
 
