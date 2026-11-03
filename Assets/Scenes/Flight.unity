@@ -1166,7 +1166,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 12}
+  m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &209378595
 MonoBehaviour:
@@ -3181,6 +3181,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::CirrusFS.Sim.PerformanceWindow
   toggleKey: 96
   visible: 0
+  tab: 0
   windowRect:
     serializedVersion: 2
     x: 20
@@ -4224,12 +4225,13 @@ MonoBehaviour:
   - TerrainData
   material: {fileID: 2100000, guid: 86bc81b990fe2e34685865fcf64621ed, type: 2}
   viewCamera: {fileID: 0}
+  tilesWide: 4
+  tilesHigh: 3
   resolution: 64
   classTexels: 128
   maxVertexAngle: 0.006
   lodQuality: 1
   focus: {fileID: 0}
-  regionResolution: 32
   maxLevel: 8
   buildBudgetPerFrame: 6
   buildBudgetMs: 4
@@ -4583,7 +4585,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Intensity
-      value: 1.1417166
+      value: 344.69516
       objectReference: {fileID: 0}
     - target: {fileID: 2722093699481043075, guid: b30f77958377a6c4c9afaf461a954583, type: 3}
       propertyPath: m_Shadows.m_Type

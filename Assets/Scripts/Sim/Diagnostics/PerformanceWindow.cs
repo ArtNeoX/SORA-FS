@@ -605,8 +605,8 @@ namespace CirrusFS.Sim
                 if (gfxUsed > 0) sb.AppendFormat(Inv, " = {0:P0} of Unity graphics memory", (double)total / gfxUsed);
                 if (vram > 0) sb.AppendFormat(Inv, ", {0:P1} of VRAM", (double)total / vram);
                 sb.Append('\n');
-                sb.AppendFormat(Inv, "  chunks {0} cached (cacheSize {1}), {2} drawn   [{3} tile, {4} coarse, {5} pinned]\n",
-                                m.chunks, terrain.cacheSize, m.shownChunks, m.tileChunks, m.regionChunks, m.keptChunks);
+                sb.AppendFormat(Inv, "  chunks {0} cached (cacheSize {1}), {2} drawn, {3} tiles loaded ({4} x {5} window)\n",
+                                m.chunks, terrain.cacheSize, m.shownChunks, terrain.VisibleTileCount, terrain.tilesWide, terrain.tilesHigh);
                 sb.AppendFormat(Inv, "  meshes {0}   class textures {1}   shared textures {2}\n",
                                 Bytes(m.meshBytes), Bytes(m.classTextureBytes), Bytes(m.sharedTextureBytes));
                 sb.AppendFormat(Inv, "  {0} per chunk ({1} quads, {2} class texels a side); a full cache is {3}\n",
@@ -621,8 +621,6 @@ namespace CirrusFS.Sim
                 lastBuildTime = now;
                 sb.AppendFormat(Inv, "  builds {0:F0}/s, {1:F2} ms each, {2:F2} ms in the last frame",
                                 rate, terrain.AverageBuildMs, terrain.BuildMsLastFrame);
-                if (terrain.Overview == null && terrain.Data != null && terrain.Data.Tiles.Count > 0)
-                    sb.AppendFormat(Inv, "\n  world overview building {0:P0}", terrain.OverviewProgress);
                 sb.Append('\n');
 
                 terrainFraction = vram > 0 ? Mathf.Clamp01((float)((double)total / vram)) : 0f;

@@ -160,19 +160,13 @@ grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
   the edge.
 
 **Streaming (`World/Terrain/GlobeTerrain.cs`).**
-- **Levels above the tiles.** Coarse chunks of 16°, 8°, 4° and 2° (`RegionLevels`, with
-  `regionResolution` quads per edge) cover every cell that has land. A 2° chunk splits into
-  the 1° tiles' own quadtrees.
-  - They're built from `Core/Terrain/TerrainOverview.cs`: a whole-world copy of the drawn
-    tiles at 16 samples/° (~7 km), about 50 MB.
-  - The overview is built from the tiles on worker threads the first time a data set is
-    seen (8 tiles at a time; one at a time took 10 minutes for the 26,138 world tiles). It
-    is cached in `persistentDataPath/TerrainOverview/`, keyed by the manifests, and loads in
-    under a second afterwards.
-  - Until it's ready, every visible tile draws its own whole-tile chunk, as before. F1
-    shows the build's progress.
-  - With the whole world loaded, the full-globe view draws under 1,000 chunks (982 at
-    10,000 km), where one per visible tile was about 13,000.
+- **Loaded window, as X-Plane does with DSF tiles.** Only `tilesWide` × `tilesHigh` 1° tiles
+  around the focus are drawn (4 × 3 by default). With an even width the window shifts when
+  the focus crosses a tile's middle, so the aircraft is always in one of the middle
+  columns. Beyond the window there is only the ocean sphere; tiles that leave it stop
+  drawing and their chunks age out of the cache.
+  - The coarse 2°–16° chunks from a whole-world overview (commit 177ed89) were removed: no
+    terrain is drawn outside the window.
 - **Splitting.** A chunk splits while its vertex spacing, seen from the **focus**, exceeds
   `maxVertexAngle / lodQuality` (about 4 px at quality 1). It stops at the tile's data
   resolution.

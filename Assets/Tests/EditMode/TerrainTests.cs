@@ -270,40 +270,5 @@ namespace CirrusFS.Geo.Tests
                 Assert.AreEqual(tile.SampleHeight(lat, lon) - 0.5, h, 0.02, "height on the surface, minus sink");
             }
         }
-
-        // ---- world overview and coarse chunks ---------------------------------------
-
-        [Test]
-        public void Overview_FollowsTheTiles_SeaElsewhere_AndSurvivesTheCache()
-        {
-            TerrainOverview ov = TerrainOverview.Build(set.Tiles, -5f, 0, null, System.Threading.CancellationToken.None);
-            Assert.AreEqual(Truth(37.5, 127.5), ov.SampleHeight(37.5, 127.5), 1.0, "tile height (rounded to metres)");
-            Assert.AreEqual(Truth(37.25, 128.75), ov.SampleHeight(37.25, 128.75), 1.0, "second tile");
-            Assert.AreEqual(-5f, ov.SampleHeight(10.0, 10.0), 0f, "no tile: sea floor");
-            Assert.AreEqual(set.ClassAt(37.3, 127.3, null), ov.ClassAt(37.3, 127.3), "class cell");
-            Assert.AreEqual(0, ov.ClassAt(-20.0, -40.0), "no tile: water");
-
-            string path = Path.Combine(root, "overview.bin");
-            ov.Save(path);
-            TerrainOverview back = TerrainOverview.Load(path);
-            Assert.IsNotNull(back);
-            Assert.AreEqual(ov.SampleHeight(37.6, 127.7), back.SampleHeight(37.6, 127.7), 0f);
-        }
-
-        [Test]
-        public void RegionChunk_IsBuiltFromTheOverview()
-        {
-            TerrainOverview ov = TerrainOverview.Build(set.Tiles, -5f, 0, null, System.Threading.CancellationToken.None);
-            var d = new TerrainChunkData();
-            TerrainChunkBuilder.BuildRegion(ov, 36.0, 126.0, 2.0, 2.0, 16, 32, d);
-            Assert.AreEqual(17 * 17 + 4 * 16, d.VertexCount, "grid plus skirts");
-            Assert.Greater(d.MaxHeight, 100f, "covers the land of +37+127");
-            Assert.AreEqual(-5f, d.MinHeight, 0.5f, "and sea around it");
-
-            // a vertex on the 37° row inside +37+127 sits at the overview height there
-            GeoMath.EcefToGeodetic(d.Centre, out double latC, out double lonC, out _);
-            Assert.AreEqual(37.0, latC, 1e-6);
-            Assert.AreEqual(127.0, lonC, 1e-6);
-        }
     }
 }

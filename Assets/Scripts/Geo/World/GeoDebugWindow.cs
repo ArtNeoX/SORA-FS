@@ -159,8 +159,6 @@ namespace CirrusFS.Geo
                 text.AppendFormat(Inv, "Terrain {0} tiles, {1} chunks (L{2}), {3} cached, {4:F2} ms/build\n",
                                   terrain.VisibleTileCount, terrain.VisibleChunkCount, terrain.DeepestVisibleLevel,
                                   terrain.CachedChunkCount, terrain.AverageBuildMs);
-            if (terrain != null && terrain.Overview == null && terrain.Data != null && terrain.Data.Tiles.Count > 0)
-                text.AppendFormat(Inv, "World overview: building {0:P0} (first run with this data)\n", terrain.OverviewProgress);
             GlobeAutogen autogen = GlobeAutogen.Active;
             if (autogen != null)
                 text.AppendFormat(Inv, "Autogen {0} objects in {1} patches, {2} cached, {3:F2} ms/patch\n",

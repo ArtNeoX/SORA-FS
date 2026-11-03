@@ -23,10 +23,10 @@ MonoBehaviour:
     - {fileID: 2800000, guid: d592142c7e38f9b4c93dc92a02a24963, type: 3}
     - {fileID: 2800000, guid: 931f15b5643744149b8917110c6e13dc, type: 3}
     material: {fileID: 2100000, guid: a95ba268a63cddb4dbbd6b3e6cba2bf9, type: 2}
-    densityPerHectare: 16
+    densityPerHectare: 8
     fullDensityRange: 20
-    range: 6000
-    scaleRange: {x: 0.7, y: 3}
+    range: 10000
+    scaleRange: {x: 1, y: 3}
     randomYaw: 1
     tintVariation: 0.3
     sink: 0.4

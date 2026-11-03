@@ -64,8 +64,8 @@ namespace CirrusFS.Geo
             return level;
         }
 
-        /// Where heights and land classes come from: a tile (with its neighbours across its
-        /// edges) or the coarse world overview.
+        /// Where heights and land classes come from: a tile, with its neighbours across its
+        /// edges.
         public interface ISampler
         {
             float Height(double latDeg, double lonDeg);
@@ -81,14 +81,6 @@ namespace CirrusFS.Geo
             public byte ClassAt(double latDeg, double lonDeg) => set.ClassAt(latDeg, lonDeg, tile);
         }
 
-        readonly struct OverviewSampler : ISampler
-        {
-            readonly TerrainOverview overview;
-            public OverviewSampler(TerrainOverview overview) { this.overview = overview; }
-            public float Height(double latDeg, double lonDeg) => overview.SampleHeight(latDeg, lonDeg);
-            public byte ClassAt(double latDeg, double lonDeg) => overview.ClassAt(latDeg, lonDeg);
-        }
-
         /// Chunk (level, x, y) of a 1° tile.
         public static void Build(TerrainDataSet set, TerrainTileSource tile, int level, int x, int y,
                                  int resolution, int texels, bool skirts, TerrainChunkData d)
@@ -97,14 +89,6 @@ namespace CirrusFS.Geo
             double size = 1.0 / (1 << level);
             BuildGrid(new TileSampler(set, tile), tile.Lat + y * size, tile.Lon + x * size, size, size,
                       resolution, texels, skirts, d);
-        }
-
-        /// A coarse chunk above the tiles (2° to 16°, clipped at the poles and the
-        /// antimeridian), from the world overview.
-        public static void BuildRegion(TerrainOverview overview, double lat0, double lon0, double sizeLat, double sizeLon,
-                                       int resolution, int texels, TerrainChunkData d)
-        {
-            BuildGrid(new OverviewSampler(overview), lat0, lon0, sizeLat, sizeLon, resolution, texels, true, d);
         }
 
         /// Vertex (i, j) sits at lat0 + j·sizeLat/r, lon0 + i·sizeLon/r. With sizes that are

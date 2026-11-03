@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -12,11 +10,16 @@ namespace CirrusFS.Geo
     /// Streams the 1° terrain tiles written by SceneryDataGen/terrain_exporter_v2 onto the
     /// WGS84 globe.
     ///
+    /// Only a window of `tilesWide` x `tilesHigh` 1° tiles around the focus (the aircraft) is
+    /// loaded and drawn, as X-Plane loads its DSF tiles: 4 x 3 by default, so the focus is
+    /// always in one of the middle tiles. The window moves with the focus; tiles that leave it
+    /// stop drawing and their chunks age out of the cache. Beyond it there is only the ocean.
+    ///
     /// Each tile is its own quadtree of chunks (see TerrainChunkBuilder): the whole degree at
     /// level 0, split by two per level down to where vertex spacing reaches the height data.
-    /// A chunk splits while its vertex spacing, seen from the camera, would be wider than
+    /// A chunk splits while its vertex spacing, seen from the focus, would be wider than
     /// `maxVertexAngle`; so the ground under the aircraft is at full data resolution and a
-    /// tile 200 km away is a handful of chunks. Chunks over the horizon (allowing for their
+    /// tile 100 km away is a handful of chunks. Chunks over the horizon (allowing for their
     /// own height) are not drawn.
     ///
     /// Like the ocean, chunks know their ECEF centre and re-place themselves on every
@@ -44,6 +47,14 @@ namespace CirrusFS.Geo
         [Tooltip("Camera the LOD follows. Defaults to Camera.main.")]
         public Camera viewCamera;
 
+        [Header("Loaded tiles")]
+        [Tooltip("1° tiles loaded east-west around the focus. With an even count the window " +
+                 "shifts when the focus crosses a tile's middle, so it is never in an edge tile.")]
+        [Range(1, 12)] public int tilesWide = 4;
+
+        [Tooltip("1° tiles loaded north-south around the focus.")]
+        [Range(1, 12)] public int tilesHigh = 3;
+
         [Header("Level of detail")]
         [Tooltip("Quads along each chunk edge.")]
         [Range(8, 128)] public int resolution = 64;
@@ -62,10 +73,6 @@ namespace CirrusFS.Geo
         [Tooltip("What the detail follows: the aircraft (set by the session at spawn), so zooming " +
                  "the camera out to the globe does not move the detail. Falls back to the camera.")]
         public Transform focus;
-
-        [Tooltip("Quads along each edge of the coarse chunks above the tiles (2° to 16°), built " +
-                 "from the world overview.")]
-        [Range(8, 64)] public int regionResolution = 32;
 
         [Tooltip("Deepest quadtree level allowed (a tile also stops where its data runs out).")]
         [Range(0, 10)] public int maxLevel = 8;
@@ -114,16 +121,6 @@ namespace CirrusFS.Geo
         public int VisibleTileCount { get; private set; }
         public int CachedChunkCount => chunks.Count;
 
-        /// The coarse world copy the 2°-16° chunks are built from; null until it is loaded or
-        /// built (then every visible tile draws its own whole-tile chunk, as before).
-        public TerrainOverview Overview { get; private set; }
-
-        /// 0..1 while the overview is being built from the tiles (first run only).
-        public float OverviewProgress => overviewProgress;
-
-        /// Coarse chunks above the tiles: level s is 2^s degrees, s = 1..RegionLevels.
-        public const int RegionLevels = 4;
-
         /// Mean time of the last 64 chunk builds, milliseconds (data, mesh and texture).
         public float AverageBuildMs { get; private set; }
 
@@ -136,7 +133,7 @@ namespace CirrusFS.Geo
         /// shared textures (palette, detail noise, the ground texture array with its mips).
         public struct MemoryStats
         {
-            public int chunks, shownChunks, tileChunks, regionChunks, keptChunks;
+            public int chunks, shownChunks;
             public long meshBytes, classTextureBytes, sharedTextureBytes;
             public long shownTriangles, shownMeshBytes;
             public long TotalBytes => meshBytes + classTextureBytes + sharedTextureBytes;
@@ -149,9 +146,6 @@ namespace CirrusFS.Geo
             var stats = new MemoryStats { chunks = chunks.Count, shownChunks = shownLastFrame.Count };
             foreach (Chunk chunk in chunks.Values)
             {
-                if (chunk.tile != null) stats.tileChunks++;
-                else stats.regionChunks++;
-                if (chunk.keep) stats.keptChunks++;
                 stats.meshBytes += chunk.meshBytes;
                 stats.classTextureBytes += chunk.classTexBytes;
             }
@@ -173,9 +167,8 @@ namespace CirrusFS.Geo
         sealed class Chunk
         {
             public long key;
-            public TerrainTileSource tile;     // null for a coarse chunk above the tiles
-            public int level;                  // tile quadtree level, or -s for a 2^s degree chunk
-            public bool keep;                  // never evicted (the coarsest chunks)
+            public TerrainTileSource tile;
+            public int level;                  // tile quadtree level
             public Double3 centre, north, up;
             public double radius, spacing;
             public float maxHeight;
@@ -209,12 +202,6 @@ namespace CirrusFS.Geo
         int buildsThisFrame;
         float buildMsThisFrame;
 
-        // world overview (built on a worker thread the first time) and land presence per level
-        Task<TerrainOverview> overviewTask;
-        CancellationTokenSource overviewCancel;
-        volatile float overviewProgress;
-        bool[][] regionLand;           // [s][row * cols + col]: some tile under this 2^s degree cell
-
         // ---- lifecycle ------------------------------------------------------------
 
         void Awake()
@@ -242,7 +229,6 @@ namespace CirrusFS.Geo
 
         void OnDestroy()
         {
-            overviewCancel?.Cancel();
             foreach (Chunk chunk in chunks.Values) DestroyChunk(chunk);
             chunks.Clear();
             Data?.Dispose();
@@ -274,8 +260,6 @@ namespace CirrusFS.Geo
             Data = TerrainDataSet.Load(folders, msg => Debug.Log("[GlobeTerrain] " + msg));
             foreach (TerrainTileSource tile in Data.Tiles)
                 tileMaxLevel[tile] = Math.Min(maxLevel, TerrainChunkBuilder.MaxUsefulLevel(tile, resolution, classTexels));
-            BuildRegionLand();
-            StartOverview();
             Shader.SetGlobalFloat(SeaHeightId, Data.SeaHeight);
 
             BuildPalette();
@@ -285,75 +269,6 @@ namespace CirrusFS.Geo
             Shader.SetGlobalFloat(ClassTexSizeId, classTexels + 2 * TerrainChunkBuilder.ClassApron);
             Shader.SetGlobalFloat(ClassApronId, TerrainChunkBuilder.ClassApron);
             ApplyClassTextures();
-        }
-
-        // ---- world overview and coarse levels --------------------------------------
-
-        static int RegionRows(int s) => (180 + (1 << s) - 1) >> s;
-        static int RegionCols(int s) => (360 + (1 << s) - 1) >> s;
-
-        /// Which 2^s degree cells have any tile under them, so coarse chunks are only built
-        /// where there is land (open ocean is the ocean sphere's).
-        void BuildRegionLand()
-        {
-            regionLand = new bool[RegionLevels + 1][];
-            for (int s = 1; s <= RegionLevels; s++) regionLand[s] = new bool[RegionRows(s) * RegionCols(s)];
-            foreach (TerrainTileSource tile in Data.Tiles)
-            {
-                int row = tile.Lat + 90, col = tile.Lon + 180;
-                for (int s = 1; s <= RegionLevels; s++)
-                    regionLand[s][(row >> s) * RegionCols(s) + (col >> s)] = true;
-            }
-        }
-
-        bool RegionHasLand(int s, int row, int col) =>
-            row >= 0 && row < RegionRows(s) && col >= 0 && col < RegionCols(s) && regionLand[s][row * RegionCols(s) + col];
-
-        /// Loads the cached overview, or builds it from the tiles on a worker thread (first run
-        /// with this data: about a minute for the whole world, mostly disk reads).
-        void StartOverview()
-        {
-            overviewCancel?.Cancel();
-            Overview = null;
-            overviewTask = null;
-            overviewProgress = 0f;
-            if (Data.Tiles.Count == 0) return;
-
-            string path = Path.Combine(Application.persistentDataPath, "TerrainOverview",
-                                       TerrainOverview.CacheKey(Data.Folders) + ".bin");
-            var tiles = new List<TerrainTileSource>(Data.Tiles);
-            float sea = Data.SeaHeight;
-            int water = Data.WaterClass;
-            var cancel = new CancellationTokenSource();
-            overviewCancel = cancel;
-            overviewTask = Task.Run(() =>
-            {
-                TerrainOverview ov = TerrainOverview.Load(path);
-                if (ov != null)
-                {
-                    overviewProgress = 1f;
-                    return ov;
-                }
-                ov = TerrainOverview.Build(tiles, sea, water, p => overviewProgress = p, cancel.Token);
-                ov.Save(path);
-                return ov;
-            }, cancel.Token);
-        }
-
-        void PollOverview()
-        {
-            if (overviewTask == null || !overviewTask.IsCompleted) return;
-            if (overviewTask.Status == TaskStatus.RanToCompletion)
-            {
-                Overview = overviewTask.Result;
-                Debug.Log("[GlobeTerrain] World overview ready: coarse chunks above the tiles are on.");
-            }
-            else if (overviewTask.Exception != null)
-            {
-                Debug.LogWarning("[GlobeTerrain] World overview failed, every visible tile draws its own chunk: " +
-                                 overviewTask.Exception.GetBaseException().Message);
-            }
-            overviewTask = null;
         }
 
         /// Class colours from the manifest (linear RGB); alpha marks water.
@@ -540,7 +455,6 @@ namespace CirrusFS.Geo
         {
             SubscribeTextures();
             if (texturesDirty && Data != null) ApplyClassTextures();
-            PollOverview();     // also in the menu, before there is a world to draw
             if (material == null || Data == null || !GeoOrigin.IsSet) return;
 
             Camera cam = viewCamera != null ? viewCamera : Camera.main;
@@ -562,19 +476,23 @@ namespace CirrusFS.Geo
             DeepestVisibleLevel = 0;
             VisibleTileCount = 0;
 
-            if (Overview != null)
+            // the tilesWide x tilesHigh window of 1° tiles around the focus, nothing else
+            GeoMath.EcefToGeodetic(focusEcef, out double focusLat, out double focusLon, out _);
+            int wide = Math.Max(1, tilesWide), high = Math.Max(1, tilesHigh);
+            int lat0 = (int)Math.Floor(focusLat - 0.5 * high + 0.5);
+            int lon0 = (int)Math.Floor(focusLon - 0.5 * wide + 0.5);
+            Double3 cameraDir = cameraEcef / cameraDistance;
+            for (int row = 0; row < high; row++)
             {
-                // coarse chunks of 16° down to 2°, then the tiles' own quadtrees
-                int s = RegionLevels;
-                for (int row = 0; row < RegionRows(s); row++)
-                    for (int col = 0; col < RegionCols(s); col++)
-                        if (RegionHasLand(s, row, col)) TraverseRegion(s, row, col, focusDir);
-            }
-            else
-            {
-                Double3 cameraDir = cameraEcef / cameraDistance;
-                foreach (TerrainTileSource tile in Data.Tiles)
+                int lat = lat0 + row;
+                if (lat < -90 || lat > 89) continue;
+                for (int col = 0; col < wide && col < 360; col++)
                 {
+                    int lon = (int)GeoMath.WrapLongitude(lon0 + col);
+                    if (lon >= 180) lon -= 360;
+                    TerrainTileSource tile = Data.TileAt(lat, lon);
+                    if (tile == null) continue;
+
                     // the tile's angular radius is under 0.8° (half a degree diagonal), 0.0135 rad
                     double angle = Math.Acos(Math.Max(-1.0, Math.Min(1.0, Double3.Dot(tile.CentreDirection, cameraDir))));
                     if (angle - 0.0135 > cameraHorizonAngle + HorizonAngle(tile.MaxHeight)) continue;
@@ -615,64 +533,6 @@ namespace CirrusFS.Geo
             double angle = Math.Acos(Math.Max(-1.0, Math.Min(1.0, Double3.Dot(centreDir, focusDir))));
             return (angle - angularRadius) * GeoMath.A < immediateRadius;
         }
-
-        /// A 2^s degree cell: its chunk, or (when it wants more detail and all its children are
-        /// ready) its four children, which at s = 1 are the 1° tiles' own quadtrees.
-        void TraverseRegion(int s, int row, int col, Double3 focusDir)
-        {
-            double size = 1 << s;
-            double lat0 = -90.0 + row * size, lon0 = -180.0 + col * size;
-            double sizeLat = Math.Min(size, 90.0 - lat0), sizeLon = Math.Min(size, 180.0 - lon0);
-            Double3 centreDir = GeoMath.GeodeticToEcef(lat0 + 0.5 * sizeLat, lon0 + 0.5 * sizeLon, 0.0).Normalized;
-            bool force = NearFocus(centreDir, focusDir, size * 0.71 * GeoMath.Deg2Rad);
-
-            Chunk node = GetOrBuildRegion(s, row, col, force);
-            if (node == null || !AboveHorizon(node)) return;
-
-            if (WantsSplit(node))
-            {
-                bool ready = true;
-                for (int i = 0; i < 4 && ready; i++)
-                {
-                    int cr = row * 2 + (i >> 1), cc = col * 2 + (i & 1);
-                    if (s > 1)
-                    {
-                        if (RegionHasLand(s - 1, cr, cc) && GetOrBuildRegion(s - 1, cr, cc, force) == null) ready = false;
-                    }
-                    else
-                    {
-                        TerrainTileSource tile = TileAtCell(cr, cc);
-                        if (tile != null && GetOrBuild(tile, 0, 0, 0, force) == null) ready = false;
-                    }
-                }
-
-                if (ready)
-                {
-                    for (int i = 0; i < 4; i++)
-                    {
-                        int cr = row * 2 + (i >> 1), cc = col * 2 + (i & 1);
-                        if (s > 1)
-                        {
-                            if (RegionHasLand(s - 1, cr, cc)) TraverseRegion(s - 1, cr, cc, focusDir);
-                        }
-                        else
-                        {
-                            TerrainTileSource tile = TileAtCell(cr, cc);
-                            if (tile == null) continue;
-                            VisibleTileCount++;
-                            Traverse(tile, 0, 0, 0, NearFocus(tile.CentreDirection, focusDir, 0.0135));
-                        }
-                    }
-                    return;
-                }
-            }
-
-            Show(node);
-        }
-
-        /// The drawn tile of 1° cell (row = lat + 90, col = lon + 180), or null (sea).
-        TerrainTileSource TileAtCell(int row, int col) =>
-            row < 180 && col < 360 ? Data.TileAt(row - 90, col - 180) : null;
 
         void Traverse(TerrainTileSource tile, int level, int x, int y, bool force)
         {
@@ -755,29 +615,6 @@ namespace CirrusFS.Geo
             return chunk;
         }
 
-        static long RegionKey(int s, int row, int col) =>
-            (1L << 62) | ((long)s << 48) | ((long)row << 24) | (long)col;
-
-        Chunk GetOrBuildRegion(int s, int row, int col, bool force)
-        {
-            long key = RegionKey(s, row, col);
-            if (chunks.TryGetValue(key, out Chunk chunk))
-            {
-                chunk.lastUsedFrame = Math.Max(chunk.lastUsedFrame, Time.frameCount - 1);
-                return chunk;
-            }
-
-            if (!force && !BudgetLeft()) return null;
-
-            buildsThisFrame++;
-            buildTimer.Restart();
-            chunk = BuildRegion(s, row, col);
-            CountBuild();
-            chunk.key = key;
-            chunks.Add(key, chunk);
-            return chunk;
-        }
-
         bool BudgetLeft() =>
             buildsThisFrame < buildBudgetPerFrame && !(buildsThisFrame > 0 && buildMsThisFrame >= buildBudgetMs);
 
@@ -797,7 +634,7 @@ namespace CirrusFS.Geo
             int cutoff = Time.frameCount - 2;
             foreach (Chunk chunk in chunks.Values)
             {
-                if (!chunk.keep && chunk.lastUsedFrame < cutoff && !chunk.shown) evictScratch.Add(chunk.key);
+                if (chunk.lastUsedFrame < cutoff && !chunk.shown) evictScratch.Add(chunk.key);
             }
 
             evictScratch.Sort((a, b) => chunks[a].lastUsedFrame.CompareTo(chunks[b].lastUsedFrame));
@@ -841,24 +678,6 @@ namespace CirrusFS.Geo
             Chunk chunk = MakeChunk(d, $"Terrain {tile.Id} L{level} ({x},{y})", ClassCells(tile, level, x, y));
             chunk.tile = tile;
             chunk.level = level;
-            chunk.keep = level == 0 && Overview == null;
-            return chunk;
-        }
-
-        /// A 2^s degree chunk from the overview, clipped at the poles and the antimeridian.
-        /// One class texel per overview cell (16 per degree), up to classTexels.
-        Chunk BuildRegion(int s, int row, int col)
-        {
-            double size = 1 << s;
-            double lat0 = -90.0 + row * size, lon0 = -180.0 + col * size;
-            int texels = Math.Min(classTexels, TerrainOverview.PerDegree << s);
-            TerrainChunkData d = buildData;
-            TerrainChunkBuilder.BuildRegion(Overview, lat0, lon0, Math.Min(size, 90.0 - lat0), Math.Min(size, 180.0 - lon0),
-                                            regionResolution, texels, d);
-            float texSize = texels + 2 * TerrainChunkBuilder.ClassApron;
-            Chunk chunk = MakeChunk(d, $"Terrain {size:0}deg {lat0:+00;-00}{lon0:+000;-000}", new Vector4(1f, 0f, 0f, texSize));
-            chunk.level = -s;
-            chunk.keep = s == RegionLevels;
             return chunk;
         }
 
