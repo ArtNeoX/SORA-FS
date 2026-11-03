@@ -49,6 +49,18 @@ namespace CirrusFS.Geo
         public int CachedPatchCount => patches.Count;
         public float AverageBuildMs { get; private set; }
 
+        /// GPU memory of the cached instance buffers, and of the layers' texture arrays (the
+        /// latter only in the editor and development builds, where the profiler can size them).
+        public void GetGpuBytes(out long instanceBuffers, out long textures)
+        {
+            instanceBuffers = 0;
+            foreach (Patch p in patches.Values)
+                if (p.buffer != null) instanceBuffers += (long)p.buffer.count * p.buffer.stride;
+            textures = 0;
+            foreach (LayerRuntime l in layers)
+                if (l.albedo != null) textures += UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(l.albedo);
+        }
+
         static readonly int InstancesId = Shader.PropertyToID("_AutogenInstances");
         static readonly int PatchToWorldId = Shader.PropertyToID("_AutogenPatchToWorld");
         static readonly int ModelId = Shader.PropertyToID("_AutogenModel");

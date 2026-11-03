@@ -127,6 +127,47 @@ namespace CirrusFS.Geo
         /// Mean time of the last 64 chunk builds, milliseconds (data, mesh and texture).
         public float AverageBuildMs { get; private set; }
 
+        /// Chunks built since start, and the time spent building in the last frame, ms.
+        public int BuildCount { get; private set; }
+        public float BuildMsLastFrame => buildMsThisFrame;
+
+        /// What the terrain holds on the GPU, for the performance window. Bytes are counted
+        /// from what was uploaded: vertex and index buffers, the class textures, and the
+        /// shared textures (palette, detail noise, the ground texture array with its mips).
+        public struct MemoryStats
+        {
+            public int chunks, shownChunks, tileChunks, regionChunks, keptChunks;
+            public long meshBytes, classTextureBytes, sharedTextureBytes;
+            public long shownTriangles, shownMeshBytes;
+            public long TotalBytes => meshBytes + classTextureBytes + sharedTextureBytes;
+        }
+
+        /// Walks the chunk cache (up to cacheSize entries): call a few times a second, not
+        /// every frame.
+        public MemoryStats GetMemoryStats()
+        {
+            var stats = new MemoryStats { chunks = chunks.Count, shownChunks = shownLastFrame.Count };
+            foreach (Chunk chunk in chunks.Values)
+            {
+                if (chunk.tile != null) stats.tileChunks++;
+                else stats.regionChunks++;
+                if (chunk.keep) stats.keptChunks++;
+                stats.meshBytes += chunk.meshBytes;
+                stats.classTextureBytes += chunk.classTexBytes;
+            }
+            foreach (Chunk chunk in shownLastFrame)
+            {
+                stats.shownTriangles += chunk.triangles;
+                stats.shownMeshBytes += chunk.meshBytes;
+            }
+
+            if (palette != null) stats.sharedTextureBytes += palette.width * 4L;
+            if (detail != null) stats.sharedTextureBytes += detail.width * (long)detail.height * 4L * 4 / 3;
+            if (albedoArray != null)
+                stats.sharedTextureBytes += albedoArray.width * (long)albedoArray.height * 4L * albedoArray.volumeDepth * 4 / 3;
+            return stats;
+        }
+
         readonly System.Diagnostics.Stopwatch buildTimer = new System.Diagnostics.Stopwatch();
 
         sealed class Chunk
@@ -142,6 +183,7 @@ namespace CirrusFS.Geo
             public MeshRenderer renderer;
             public Mesh mesh;
             public Texture2D classTex;
+            public long meshBytes, classTexBytes, triangles;
             public int lastUsedFrame;
             public bool shown;
         }
@@ -743,6 +785,7 @@ namespace CirrusFS.Geo
         {
             float ms = (float)buildTimer.Elapsed.TotalMilliseconds;
             buildMsThisFrame += ms;
+            BuildCount++;
             AverageBuildMs += (ms - AverageBuildMs) / 64f;
         }
 
@@ -828,6 +871,8 @@ namespace CirrusFS.Geo
             mesh.SetUVs(1, d.DetailUv, 0, d.VertexCount);
             mesh.SetIndices(d.Indices, 0, d.IndexCount, MeshTopology.Triangles, 0, true);
             mesh.RecalculateBounds();
+            long meshBytes = (long)d.IndexCount * (mesh.indexFormat == IndexFormat.UInt32 ? 4 : 2);
+            for (int s = 0; s < mesh.vertexBufferCount; s++) meshBytes += (long)mesh.GetVertexBufferStride(s) * d.VertexCount;
             mesh.UploadMeshData(true);
 
             var classTex = new Texture2D(d.ClassTextureSize, d.ClassTextureSize, TextureFormat.R8, false, true)
@@ -865,6 +910,9 @@ namespace CirrusFS.Geo
                 renderer = renderer,
                 mesh = mesh,
                 classTex = classTex,
+                meshBytes = meshBytes,
+                classTexBytes = (long)d.ClassTextureSize * d.ClassTextureSize,
+                triangles = d.IndexCount / 3,
                 lastUsedFrame = Time.frameCount,
             };
 
