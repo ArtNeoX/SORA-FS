@@ -26,23 +26,48 @@ Material:
     m_Ints: []
     m_Floats:
     - _AtmosphereHeight: 9000
+    - _BeachHeight: 1
+    - _BeachWidth: 15
     - _BlendSharpness: 1
     - _BlendWarp: 1.33
     - _BorderCurve: 2.31
     - _Brightness: 1
+    - _CoastClimbHeight: 1.5
+    - _CoastClimbSlope: 3
     - _DetailFade: 5000
     - _DetailStrength: 0.35
+    - _FrameEdgeNoise: 14
+    - _FrameEdgeSoftness: 6
     - _HazeDistance: 140000
+    - _LakeFlatSlope: 0.35
     - _RockSlopeEnd: 45
     - _RockSlopeStart: 30
+    - _RunwayRubberStrength: 0.92
     - _Saturation: 0.8
+    - _SeaLevelWater: 2
+    - _SeaSurfaceHeight: 0.05
     - _ShoreHeight: 3
+    - _SurfHeight: 0.45
+    - _SurfWidth: 5
     - _TextureAntiTiling: 0.5
     - _WaterGlint: 8
+    - _WetSandDarkening: 0.403
+    - _WetWidth: 25
     m_Colors:
     - _HazeColor: {r: 0.62, g: 0.72, b: 0.8399999, a: 1}
     - _RockColor: {r: 0.29999998, g: 0.27999997, b: 0.25999996, a: 1}
+    - _RunwayAsphalt: {r: 0.26999995, g: 0.26999995, b: 0.27999997, a: 1}
+    - _RunwayConcrete: {r: 0.6, g: 0.59, b: 0.56, a: 1}
+    - _RunwayDirt: {r: 0.52, g: 0.41999996, b: 0.31999996, a: 1}
+    - _RunwayGrassTint: {r: 1.05, g: 1.12, b: 0.85, a: 0}
+    - _RunwayGravel: {r: 0.56, g: 0.53, b: 0.49, a: 1}
+    - _RunwayPaint: {r: 0.86, g: 0.86, b: 0.8399999, a: 1}
+    - _RunwayPaintYellow: {r: 0.93, g: 0.74, b: 0.11999995, a: 1}
+    - _RunwayRubber: {r: 0.06999998, g: 0.06999998, b: 0.07499998, a: 1}
+    - _RunwaySand: {r: 0.74, g: 0.68, b: 0.54999995, a: 1}
+    - _RunwaySnow: {r: 0.92, g: 0.93, b: 0.95, a: 1}
     - _ShoreColor: {r: 0.6627451, g: 0.61101043, b: 0.49374512, a: 1}
+    - _SurfColor: {r: 1, g: 1, b: 1, a: 0}
     - _WaterColor: {r: 0.22387859, g: 0.2637252, b: 0.3679245, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
