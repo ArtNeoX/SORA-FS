@@ -75,7 +75,8 @@ namespace CirrusFS.Geo
         /// `meshVerticesPerDegree` vertices per degree (its finest level), or the tile's
         /// bilinear surface when that is 0. Returns the instance count.
         public static int Build(TerrainTileSource tile, long row, long column, in Settings s, Result r,
-                                long meshVerticesPerDegree = 0, IAutogenExclusion exclusion = null)
+                                long meshVerticesPerDegree = 0, IAutogenExclusion exclusion = null,
+                                float seaFloorAbove = float.NegativeInfinity)
         {
             r.Data.Clear();
             double lat0 = SouthOf(row), lon0 = WestOf(column);
@@ -129,6 +130,8 @@ namespace CirrusFS.Geo
                     double ground = meshVerticesPerDegree > 0
                         ? TerrainChunkBuilder.SurfaceHeight(tile, lat, lon, meshVerticesPerDegree)
                         : tile.SampleHeight(lat, lon);
+                    // the exporter's sea floor is drawn as sea at sea level: nothing grows there
+                    if (ground <= seaFloorAbove) continue;
                     double h = ground - s.sink;
                     Double3 rel = GeoMath.GeodeticToEcef(lat, lon, h) - r.Centre;
                     var p = new Vector3((float)Double3.Dot(rel, r.East), (float)Double3.Dot(rel, r.Up),

@@ -204,6 +204,27 @@ grid of 2^L × 2^L chunks, each with (R+1)² vertices (R = 32).
 - Detail noise is anchored to the Earth on a Mercator grid (conformal, so nothing is
   sheared), wrapped per chunk in double.
 - Steep slopes turn to rock.
+- **Water is drawn by the terrain.** The water class (WorldCover: sea, lakes and rivers alike)
+  is the water, so the shoreline is wherever the class says. This replaces two surfaces that
+  disagreed: the ocean sphere's h = 0 line and the class border. Their mismatch gave puddles and
+  a second shoreline.
+  - **Sea level:** the vertex shader raises the exporter's −5 m sea floor to `_SeaSurfaceHeight`
+    (5 cm) in every pass, so the sea is flat at sea level. Lakes keep their own height.
+  - **Look:** water is shaded like the ocean (`SeaColor`: the same wave maps, triplanar ECEF
+    mapping, colours and sun) from the `_Sea*` globals that `OceanSphere` publishes. Colours are
+    sent as linear vectors, because a global colour isn't converted the way a material Color is.
+  - **Steep coasts:** water-class ground more than `_CoastClimbHeight` (1.5 m) above the water on
+    slopes over `_CoastClimbSlope` (3°) shows the land around it, or rock. Steep coasts are where
+    the land cover's coastline and the 280 m height grid disagree. Land pixels are never changed.
+  - **The ocean steps aside:** `GlobeTerrain` publishes the 1° cells it drew this frame
+    (`_TerrainDrawnCells`, at most 16), and `Ocean.shader` discards its pixels inside them
+    (`Ocean/OceanCells.hlsl`, every pass). The ocean only shows on open-sea tiles and beyond the
+    loaded window. It runs about 2 m under each cell edge, below the terrain's water, so no gap
+    can open there.
+  - **Below sea level:** land under 0 m (polders, low parts of Osaka) now shows as land; before,
+    the global ocean covered it. Autogen skips the sea floor.
+  - **Collision:** unchanged. The sea floor is still −5 m and `WaterSurfaceCollider` is the sea
+    surface.
 - Lighting is the main light plus SH ambient. Haze comes from the time-of-day fog pass.
 
 **Ground textures (`World/Terrain/TerrainClassTextures.cs`).** Optional tiling albedo per
@@ -239,9 +260,9 @@ ellipsoid heights, the same assumption as the h = 0 ocean (§1).
 **Known limits.**
 - The overview is built from the drawn tiles at 16/°. A detailed regional tile's edge
   blending isn't in it, which doesn't matter at that scale.
-- Sea floor: the terrain shader discards water cells at the exporter's sea-floor height.
-  From far away the ocean's coarse chords sag below h = 0, and the −5 m sea floor used to
-  show through as pale blocks. Lakes, even below sea level, aren't affected.
+- Sea floor: the terrain draws its sea at sea level itself, and the ocean sphere steps aside
+  inside drawn tiles (see "Water is drawn by the terrain" above). Small islands still have a
+  stair-stepped outline from the 280 m height grid.
 - Class textures are point-sampled on coarse chunks, where a texel spans several data
   cells. They're smoothed in texels there.
 - Ground textures have a seam along the antimeridian (180°), where the detail grid wraps.

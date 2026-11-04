@@ -25,6 +25,16 @@
 // Lighting: main light with shadows plus the SH ambient, both pre-exposed by the time-of-day
 // system. Distance haze is the time-of-day fog pass; the simple fallback haze here only runs
 // without it (_TOD_FogActive = 0), as on the ocean.
+//
+// Water: the terrain draws its own water from the water class (sea, lakes, rivers), so the
+// shoreline is wherever the class says, and the ocean sphere steps aside inside the tiles
+// GlobeTerrain draws (Ocean/OceanCells.hlsl). The exporter's sea floor (-5 m) is raised in
+// the vertex shader to _SeaSurfaceHeight (just above the ocean sphere's h = 0, which runs a
+// couple of metres under each tile edge), so the sea inside tiles is flat at sea level and
+// meets the open ocean. Water is shaded like the ocean (same wave maps, colours and sun, from
+// the _Sea* globals of OceanSphere). Water-class ground that climbs a steep coast above sea
+// level (where the land-cover's coastline and the coarser height grid disagree) shows the land
+// around it, or rock, instead of water running up the hill. Land is never changed.
 Shader "CirrusFS/Terrain"
 {
     Properties
@@ -32,10 +42,11 @@ Shader "CirrusFS/Terrain"
         [Header(Colour)]
         _Brightness ("Albedo scale", Range(0, 2)) = 1
         _Saturation ("Saturation", Range(0, 1.5)) = 1.1
-        _WaterColor ("Inland water", Color) = (0.02, 0.06, 0.10, 1)
-        _WaterGlint ("Water sun glint", Float) = 8
-        _ShoreColor ("Shore (water cells on low ground)", Color) = (0.45, 0.40, 0.30, 1)
-        _ShoreHeight ("Shore below height (m)", Float) = 3
+
+        [Header(Water)]
+        _SeaSurfaceHeight ("Sea surface height (m)", Float) = 0.05
+        _CoastClimbHeight ("Steep coastal water shows land above (m)", Float) = 1.5
+        _CoastClimbSlope ("... on slopes steeper than (deg)", Range(0, 30)) = 3
 
         [Header(Class blending)]
         _BorderCurve ("Border sharpness (1 = soft blur)", Range(1, 12)) = 4
@@ -79,10 +90,7 @@ Shader "CirrusFS/Terrain"
 
         CBUFFER_START(UnityPerMaterial)
             half _Brightness, _Saturation;
-            half4 _WaterColor;
-            float _WaterGlint;
-            half4 _ShoreColor;
-            float _ShoreHeight;
+            float _SeaSurfaceHeight, _CoastClimbHeight, _CoastClimbSlope;
             float _BorderCurve, _BlendWarp;
             float _TextureAntiTiling;
             float _DetailStrength, _DetailFade;
@@ -94,6 +102,20 @@ Shader "CirrusFS/Terrain"
                   _RunwaySand, _RunwaySnow;
             float _FrameEdgeNoise, _FrameEdgeSoftness;
         CBUFFER_END
+
+        float _TerrainSeaHeight;    // exporter's sea floor, metres (GlobeTerrain)
+
+        // The exporter's sea floor raised to the sea surface (every pass, so shadows and depth
+        // agree with what is drawn). Sea vertices are flat, so their normal is up.
+        void LiftSea(inout float3 positionOS, inout float3 normalOS, inout float height)
+        {
+            if (abs(height - _TerrainSeaHeight) < 0.3)
+            {
+                positionOS.y += _SeaSurfaceHeight - height;
+                normalOS = float3(0, 1, 0);
+                height = _SeaSurfaceHeight;
+            }
+        }
         ENDHLSL
 
         Pass
@@ -121,7 +143,6 @@ Shader "CirrusFS/Terrain"
             TEXTURE2D(_TerrainDetail); SAMPLER(sampler_TerrainDetail); // global
             float _TerrainClassTexSize;                               // texels + 2 apron, global
             float _TerrainClassApron;                                 // apron texels per side
-            float _TerrainSeaHeight;                                  // exporter's sea floor, metres
             TEXTURE2D_ARRAY(_TerrainClassAlbedo); SAMPLER(sampler_TerrainClassAlbedo); // global
             // per class id: x layer + 1 (0 = flat colour), y repeats per 4096 m, z strength,
             // w 1 = keep the class colour; tint linear RGB. Zero (unset) means flat colour.
@@ -130,6 +151,16 @@ Shader "CirrusFS/Terrain"
             float4 _TerrainRockParams, _TerrainRockTint;               // steep slopes, same layout
             float _OceanCameraHeight;                                 // from OceanSphere
             float _TOD_FogActive;
+
+            // The ocean's look, from OceanSphere (same maps and mapping as Ocean.shader)
+            float4x4 _OceanUnityToEcef;
+            float3 _OceanUvOriginA, _OceanUvOriginB;
+            TEXTURE2D(_SeaWaveNormalA); SAMPLER(sampler_SeaWaveNormalA);
+            TEXTURE2D(_SeaWaveNormalB); SAMPLER(sampler_SeaWaveNormalB);
+            float4 _SeaWaveA, _SeaWaveB;      // tile size (m), strength, fade distance (m)
+            half4 _SeaDeepColor, _SeaScatterColor, _SeaSkyFallback;
+            float4 _SeaSun;                   // glint power, glint intensity, sheen power, sheen intensity
+            float _SeaReflectionStrength;
 
             // Airports, per chunk (GlobeAirports / AirportChunkPacker), in chunk-local metres
             // (x east, z north). Unset (zero counts) on chunks without airports.
@@ -159,16 +190,75 @@ Shader "CirrusFS/Terrain"
             Varyings Vert(Attributes input)
             {
                 Varyings o;
-                VertexPositionInputs p = GetVertexPositionInputs(input.positionOS.xyz);
+                float3 positionOS = input.positionOS.xyz;
+                float3 normalOS = input.normalOS;
+                float height = input.uvDetail.z;
+                LiftSea(positionOS, normalOS, height);
+                VertexPositionInputs p = GetVertexPositionInputs(positionOS);
                 o.positionCS = p.positionCS;
-                o.positionOS = input.positionOS.xz;
+                o.positionOS = positionOS.xz;
                 o.positionWS = p.positionWS;
-                o.normalWS = TransformObjectToWorldNormal(input.normalOS);
+                o.normalWS = TransformObjectToWorldNormal(normalOS);
                 // chunk-local +Y is the ellipsoid normal at the chunk centre
                 o.upWS = TransformObjectToWorldDir(float3(0, 1, 0));
                 o.uvClass = input.uvClass;
-                o.uvDetail = input.uvDetail;
+                o.uvDetail = float3(input.uvDetail.xy, height);
                 return o;
+            }
+
+            // ---- water, shaded like Ocean.shader --------------------------------------------
+            half3 SeaNormalSample(TEXTURE2D_PARAM(tex, samp), float2 uv) { return UnpackNormal(SAMPLE_TEXTURE2D(tex, samp, uv)); }
+
+            float3 SeaTriplanar(TEXTURE2D_PARAM(tex, samp), float3 pTiles, float3 w)
+            {
+                half3 tx = SeaNormalSample(TEXTURE2D_ARGS(tex, samp), pTiles.yz);
+                half3 ty = SeaNormalSample(TEXTURE2D_ARGS(tex, samp), pTiles.zx);
+                half3 tz = SeaNormalSample(TEXTURE2D_ARGS(tex, samp), pTiles.xy);
+                return w.x * float3(0, tx.x, tx.y) + w.y * float3(ty.y, 0, ty.x) + w.z * float3(tz.x, tz.y, 0);
+            }
+
+            // Lit water colour at a point, before haze: Fresnel between the deep body colour and
+            // the sky reflection, plus glint and sheen. geomN = the water's flat normal (up).
+            half3 SeaColor(float3 positionWS, float3 geomN, float3 V, float dist, Light sun)
+            {
+                float3x3 toEcef = (float3x3)_OceanUnityToEcef;
+                float3 pEcef = mul(toEcef, positionWS);
+                float3 nEcef = mul(toEcef, geomN);
+                float3 w = pow(abs(nEcef), 8.0);
+                w /= (w.x + w.y + w.z);
+
+                float fadeA = _SeaWaveA.y * exp(-dist / max(_SeaWaveA.z, 1.0));
+                float fadeB = _SeaWaveB.y * exp(-dist / max(_SeaWaveB.z, 1.0));
+                float3 perturb = 0;
+                if (fadeA > 0.002)
+                    perturb += fadeA * SeaTriplanar(TEXTURE2D_ARGS(_SeaWaveNormalA, sampler_SeaWaveNormalA),
+                                                    pEcef / max(_SeaWaveA.x, 0.01) + _OceanUvOriginA, w);
+                if (fadeB > 0.002)
+                    perturb += fadeB * SeaTriplanar(TEXTURE2D_ARGS(_SeaWaveNormalB, sampler_SeaWaveNormalB),
+                                                    pEcef / max(_SeaWaveB.x, 0.01) + _OceanUvOriginB, w);
+                float3 N = normalize(mul(transpose(toEcef), normalize(nEcef + perturb)));
+
+                float3 L = sun.direction;
+                half3 sunColor = sun.color;
+                half shadow = sun.shadowAttenuation;
+                half day = saturate(dot(geomN, L) * 5.0 + 0.15);
+                half NdotV = saturate(dot(N, V));
+                half fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+                float3 R = reflect(-V, N);
+                R = dot(R, geomN) < 0 ? R - 2.0 * dot(R, geomN) * geomN : R;
+                half space = saturate(log10(max(_OceanCameraHeight, 1.0) / 20000.0) / 2.0);
+                half3 sky = GlossyEnvironmentReflection(R, 0.08h, 1.0h);
+                sky = (dot(sky, 1) > 0.001 ? sky : _SeaSkyFallback.rgb) * _SeaReflectionStrength * day * (1.0 - 0.85 * space);
+                half waveLight = saturate(0.55 + 2.2 * (dot(N, L) - dot(geomN, L)) + 0.45 * saturate(dot(geomN, L)));
+                half3 deepLight = SampleSH(geomN) + sunColor * shadow * saturate(dot(geomN, L));
+                half3 body = _SeaDeepColor.rgb * deepLight * (0.8 + 0.4 * waveLight) +
+                             _SeaScatterColor.rgb * waveLight * shadow * sunColor * (1.0 - 0.4 * space);
+                half3 color = lerp(body, sky, fresnel);
+                float3 H = normalize(L + V);
+                half NdotH = saturate(dot(N, H));
+                half glint = pow(NdotH, _SeaSun.x) * _SeaSun.y + pow(NdotH, _SeaSun.z) * _SeaSun.w * (1.0 - 0.8 * space);
+                color += glint * fresnel * 4.0 * sunColor * shadow * saturate(dot(geomN, L) * 10.0);
+                return color;
             }
 
             // Quadratic B-spline weights of cells -1, 0, +1 for an offset u (-0.5..0.5) from the
@@ -401,7 +491,33 @@ Shader "CirrusFS/Terrain"
                 [branch] if (e.w > 0.002) a3 = ClassAlbedo(pid.w, p3.rgb, g);
 
                 half3 albedo = a0 * e.x + a1 * e.y + a2 * e.z + a3 * e.w;
-                half water = p0.a * e.x + p1.a * e.y + p2.a * e.z + p3.a * e.w;
+                half4 isWater = half4(p0.a, p1.a, p2.a, p3.a);
+                half water = dot(e, isWater);
+
+                // The ground under the water's share of the blend: the land classes around it,
+                // or rock where there are none. It shows where water-class ground climbs a steep
+                // coast (below), and keeps the land colour from fading toward the water palette.
+                half slope = degrees(acos(saturate(dot(N, up))));
+                [branch] if (water > 0.002)
+                {
+                    half4 landE = e * (1.0 - isWater);
+                    half landSum = landE.x + landE.y + landE.z + landE.w;
+                    half3 waterAlbedo = a0 * (e.x * isWater.x) + a1 * (e.y * isWater.y) +
+                                        a2 * (e.z * isWater.z) + a3 * (e.w * isWater.w);
+                    half3 rockFill = _RockColor.rgb;
+                    [branch] if (landSum < 0.99 && _TerrainRockParams.x > 0.5)
+                        rockFill = GroundTexture(rockFill, _TerrainRockParams, _TerrainRockTint.rgb, g);
+                    rockFill *= 0.8 + 0.4 * nMid.r;
+                    half3 fill = landSum > 0.01
+                        ? lerp(rockFill, (a0 * landE.x + a1 * landE.y + a2 * landE.z + a3 * landE.w) / landSum, saturate(landSum * 4.0))
+                        : rockFill;
+                    albedo += fill * water - waterAlbedo;
+                }
+                // water-class ground well above the water level on a slope: not water
+                half climb = smoothstep(_CoastClimbHeight, _CoastClimbHeight * 2.0, i.uvDetail.z - _SeaSurfaceHeight)
+                           * smoothstep(_CoastClimbSlope, _CoastClimbSlope * 2.0, slope);
+                // lakes are flat at their own level, so only coastal ground climbs
+                water *= 1.0 - climb;
 
                 // ---- airports: frame ground, then the runway on top (below) --------------
                 // The frame replaces whatever class is there with the airport's ground class;
@@ -438,11 +554,6 @@ Shader "CirrusFS/Terrain"
                     water *= 1.0 - runway;
                 }
 
-                // Sea floor under the ocean is never drawn. Seen from far away the ocean's coarse
-                // chords sag below the h = 0 ellipsoid by hundreds of metres, and the exporter's
-                // -5 m sea floor showed through them as pale blocks. Only water at that sea-floor
-                // height counts, so lakes (even below sea level) stay.
-                clip(0.5 - water * step(i.uvDetail.z, _TerrainSeaHeight + 1.0));
                 half luma = dot(albedo, half3(0.2126, 0.7152, 0.0722));
                 albedo = lerp(luma.xxx, albedo, _Saturation) * _Brightness;
 
@@ -450,7 +561,6 @@ Shader "CirrusFS/Terrain"
                 albedo *= 1.0 + detail * _DetailStrength * 2.0;
 
                 // ---- rock on steep ground ------------------------------------------------
-                half slope = degrees(acos(saturate(dot(N, up))));
                 half rock = smoothstep(_RockSlopeStart, _RockSlopeEnd, slope + (nMid.b - 0.5) * 8.0) * (1.0 - water) * (1.0 - frame);
                 half3 rockAlbedo = _RockColor.rgb;
                 [branch] if (rock > 0.0 && _TerrainRockParams.x > 0.5)
@@ -468,14 +578,6 @@ Shader "CirrusFS/Terrain"
                     albedo = lerp(albedo, runwayAlbedo, runway);
                 }
 
-                // Water cells are both lakes and the sea. Sea ground lies under the ocean
-                // surface, so the only sea "water" ever seen is the blend reaching onto the
-                // beach: on low ground, show it as shore instead of a dark rim. Lakes sit on
-                // their own (higher) ground and stay water.
-                half shore = 1.0 - saturate((i.uvDetail.z - _ShoreHeight) / max(_ShoreHeight, 0.1));
-                albedo = lerp(albedo, lerp(_WaterColor.rgb, _ShoreColor.rgb, shore), water);
-                water *= 1.0 - shore;
-
                 // ---- light ---------------------------------------------------------------
                 float4 shadowCoord = TransformWorldToShadowCoord(i.positionWS);
                 Light sun = GetMainLight(shadowCoord);
@@ -483,10 +585,9 @@ Shader "CirrusFS/Terrain"
                 half NdotL = saturate(dot(N, L));
                 half3 color = albedo * (SampleSH(N) + sun.color * sun.shadowAttenuation * NdotL);
 
-                // inland water: a sun glint, Fresnel-weighted
-                half fresnel = 0.02 + 0.98 * pow(1.0 - saturate(dot(up, V)), 5.0);
-                half glint = pow(saturate(dot(up, normalize(L + V))), 400.0) * _WaterGlint;
-                color += water * glint * fresnel * 4.0 * sun.color * sun.shadowAttenuation;
+                // ---- water: the sea, lakes and rivers, shaded like the ocean -------------
+                [branch] if (water > 0.002)
+                    color = lerp(color, SeaColor(i.positionWS, up, V, dist, sun), water);
 
                 // ---- fallback haze (only without the time-of-day fog) --------------------
                 float airFraction = min(1.0, _AtmosphereHeight / max(_OceanCameraHeight, 1.0));
@@ -518,9 +619,12 @@ Shader "CirrusFS/Terrain"
             float3 _LightDirection;
             float3 _LightPosition;
 
-            float4 ShadowVert(float4 positionOS : POSITION, float3 normalOS : NORMAL) : SV_POSITION
+            float4 ShadowVert(float4 positionOS : POSITION, float3 normalOS : NORMAL, float3 uvDetail : TEXCOORD1) : SV_POSITION
             {
-                float3 positionWS = TransformObjectToWorld(positionOS.xyz);
+                float3 p = positionOS.xyz;
+                float height = uvDetail.z;
+                LiftSea(p, normalOS, height);
+                float3 positionWS = TransformObjectToWorld(p);
                 float3 normalWS = TransformObjectToWorldNormal(normalOS);
             #if _CASTING_PUNCTUAL_LIGHT_SHADOW
                 float3 lightDirectionWS = normalize(_LightPosition - positionWS);
@@ -553,9 +657,12 @@ Shader "CirrusFS/Terrain"
             #pragma vertex DepthVert
             #pragma fragment DepthFrag
 
-            float4 DepthVert(float4 positionOS : POSITION) : SV_POSITION
+            float4 DepthVert(float4 positionOS : POSITION, float3 normalOS : NORMAL, float3 uvDetail : TEXCOORD1) : SV_POSITION
             {
-                return TransformObjectToHClip(positionOS.xyz);
+                float3 p = positionOS.xyz;
+                float height = uvDetail.z;
+                LiftSea(p, normalOS, height);
+                return TransformObjectToHClip(p);
             }
 
             half DepthFrag() : SV_Target { return 0; }
@@ -576,10 +683,13 @@ Shader "CirrusFS/Terrain"
 
             struct DNVaryings { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; };
 
-            DNVaryings DNVert(float4 positionOS : POSITION, float3 normalOS : NORMAL)
+            DNVaryings DNVert(float4 positionOS : POSITION, float3 normalOS : NORMAL, float3 uvDetail : TEXCOORD1)
             {
                 DNVaryings o;
-                o.positionCS = TransformObjectToHClip(positionOS.xyz);
+                float3 p = positionOS.xyz;
+                float height = uvDetail.z;
+                LiftSea(p, normalOS, height);
+                o.positionCS = TransformObjectToHClip(p);
                 o.normalWS = TransformObjectToWorldNormal(normalOS);
                 return o;
             }

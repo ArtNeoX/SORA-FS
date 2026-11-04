@@ -115,6 +115,13 @@ namespace CirrusFS.Geo
         static readonly int ClassTintId = Shader.PropertyToID("_TerrainClassTint");
         static readonly int RockParamsId = Shader.PropertyToID("_TerrainRockParams");
         static readonly int RockTintId = Shader.PropertyToID("_TerrainRockTint");
+        static readonly int DrawnCellsId = Shader.PropertyToID("_TerrainDrawnCells");
+        static readonly int DrawnCellCountId = Shader.PropertyToID("_TerrainDrawnCellCount");
+
+        /// The 1° cells drawn this frame (south-west corner lat, lon), for the ocean, which
+        /// leaves the water inside them to the terrain (Ocean/OceanCells.hlsl).
+        readonly Vector4[] drawnCells = new Vector4[16];
+        int drawnCellCount;
         public TerrainDataSet Data { get; private set; }
 
         public int VisibleChunkCount { get; private set; }
@@ -222,6 +229,7 @@ namespace CirrusFS.Geo
         void OnDisable()
         {
             if (Active == this) Active = null;
+            Shader.SetGlobalFloat(DrawnCellCountId, 0f);   // the ocean covers everything again
             if (subscribedTextures != null) subscribedTextures.Changed -= MarkTexturesDirty;
             subscribedTextures = null;
             GeoOrigin.Recentered -= HandleRecentered;
@@ -475,6 +483,8 @@ namespace CirrusFS.Geo
         {
             SubscribeTextures();
             if (texturesDirty && Data != null) ApplyClassTextures();
+            drawnCellCount = 0;
+            Shader.SetGlobalFloat(DrawnCellCountId, 0f);
             if (material == null || Data == null || !GeoOrigin.IsSet) return;
 
             Camera cam = viewCamera != null ? viewCamera : Camera.main;
@@ -518,9 +528,17 @@ namespace CirrusFS.Geo
                     if (angle - 0.0135 > cameraHorizonAngle + HorizonAngle(tile.MaxHeight)) continue;
 
                     VisibleTileCount++;
+                    int shownBefore = shownThisFrame.Count;
                     Traverse(tile, 0, 0, 0, NearFocus(tile.CentreDirection, focusDir, 0.0135));
+                    // a tile with anything shown covers all of itself that is above the horizon
+                    // (a parent stays until all four children are built), so its water is the
+                    // terrain's to draw
+                    if (shownThisFrame.Count > shownBefore && drawnCellCount < drawnCells.Length)
+                        drawnCells[drawnCellCount++] = new Vector4(tile.Lat, tile.Lon, 0f, 0f);
                 }
             }
+            Shader.SetGlobalVectorArray(DrawnCellsId, drawnCells);
+            Shader.SetGlobalFloat(DrawnCellCountId, drawnCellCount);
 
             for (int i = 0; i < shownLastFrame.Count; i++)
             {

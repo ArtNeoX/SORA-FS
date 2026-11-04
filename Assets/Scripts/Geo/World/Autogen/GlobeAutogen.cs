@@ -276,7 +276,8 @@ namespace CirrusFS.Geo
             long meshK = terrainInUse != null ? (1L << terrainInUse.MaxLevelOf(tile)) * terrainInUse.resolution : 0;
             // nothing grows on airport ground
             IAutogenExclusion exclusion = GlobeAirports.Active != null ? GlobeAirports.Active.Database : null;
-            int count = AutogenPlacement.Build(tile, c.row, c.column, c.layer.settings, scratch, meshK, exclusion);
+            int count = AutogenPlacement.Build(tile, c.row, c.column, c.layer.settings, scratch, meshK, exclusion,
+                                               data.SeaHeight + 0.5f);
 
             var p = new Patch
             {

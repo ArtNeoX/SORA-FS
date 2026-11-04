@@ -6,6 +6,12 @@
 // map on the CPU in double, so the UVs stay small numbers. Wave strength fades out with
 // distance, so from altitude there is no visible tiling and from space the sea is smooth.
 //
+// Inside the 1° tiles GlobeTerrain draws, the terrain draws the water itself (from its land
+// classes) and this surface discards its pixels (OceanCells.hlsl); it only shows where there
+// is no terrain: open-sea tiles and beyond the loaded window. Terrain.shader copies the
+// shading below for its water (from the _Sea* globals OceanSphere publishes), so the two meet
+// without a visible edge. Keep them in step.
+//
 // Shading: Schlick Fresnel between a deep-water body colour (looking down) and the sky
 // reflection (grazing), a tight sun glint plus a broad sheen, and haze toward the horizon
 // whose path length shrinks once the camera is above the atmosphere.
@@ -65,6 +71,7 @@ Shader "CirrusFS/Ocean"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "OceanCells.hlsl"
 
             TEXTURE2D(_WaveNormalA); SAMPLER(sampler_WaveNormalA);
             TEXTURE2D(_WaveNormalB); SAMPLER(sampler_WaveNormalB);
@@ -81,8 +88,7 @@ Shader "CirrusFS/Ocean"
                 float _HazeDistance, _AtmosphereHeight;
             CBUFFER_END
 
-            // Set every frame by OceanSphere / OceanFrame.
-            float4x4 _OceanUnityToEcef;   // rotation only: Unity world direction -> ECEF direction
+            // Set every frame by OceanSphere / OceanFrame (_OceanUnityToEcef: OceanCells.hlsl).
             float3 _OceanUvOriginA;       // frac(originEcef / ScaleA) + scroll A, in tiles
             float3 _OceanUvOriginB;
             float _OceanCameraHeight;     // camera height above the ellipsoid, m
@@ -134,6 +140,9 @@ Shader "CirrusFS/Ocean"
 
             half4 Frag(Varyings i, bool isFrontFace : SV_IsFrontFace) : SV_Target
             {
+                // the terrain draws the water inside the tiles it shows
+                if (UnderDrawnTerrain(i.positionWS)) discard;
+
                 float3 geomN = normalize(i.normalWS);
                 float3 toCamera = _WorldSpaceCameraPos - i.positionWS;
                 float dist = length(toCamera);
@@ -232,13 +241,23 @@ Shader "CirrusFS/Ocean"
             #pragma vertex DepthVert
             #pragma fragment DepthFrag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "OceanCells.hlsl"
 
-            float4 DepthVert(float4 positionOS : POSITION) : SV_POSITION
+            struct DepthVaryings { float4 positionCS : SV_POSITION; float3 positionWS : TEXCOORD0; };
+
+            DepthVaryings DepthVert(float4 positionOS : POSITION)
             {
-                return TransformObjectToHClip(positionOS.xyz);
+                DepthVaryings o;
+                o.positionWS = TransformObjectToWorld(positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(o.positionWS);
+                return o;
             }
 
-            half DepthFrag() : SV_Target { return 0; }
+            half DepthFrag(DepthVaryings i) : SV_Target
+            {
+                if (UnderDrawnTerrain(i.positionWS)) discard;
+                return 0;
+            }
             ENDHLSL
         }
 
@@ -254,18 +273,24 @@ Shader "CirrusFS/Ocean"
             #pragma vertex DNVert
             #pragma fragment DNFrag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "OceanCells.hlsl"
 
-            struct DNVaryings { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; };
+            struct DNVaryings { float4 positionCS : SV_POSITION; float3 normalWS : TEXCOORD0; float3 positionWS : TEXCOORD1; };
 
             DNVaryings DNVert(float4 positionOS : POSITION, float3 normalOS : NORMAL)
             {
                 DNVaryings o;
-                o.positionCS = TransformObjectToHClip(positionOS.xyz);
+                o.positionWS = TransformObjectToWorld(positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(o.positionWS);
                 o.normalWS = TransformObjectToWorldNormal(normalOS);
                 return o;
             }
 
-            half4 DNFrag(DNVaryings i) : SV_Target { return half4(normalize(i.normalWS), 0); }
+            half4 DNFrag(DNVaryings i) : SV_Target
+            {
+                if (UnderDrawnTerrain(i.positionWS)) discard;
+                return half4(normalize(i.normalWS), 0);
+            }
             ENDHLSL
         }
     }

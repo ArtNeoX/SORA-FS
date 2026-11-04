@@ -75,6 +75,18 @@ namespace CirrusFS.Geo
         static readonly int CameraHeightId = Shader.PropertyToID("_OceanCameraHeight");
         static readonly int ScaleAId = Shader.PropertyToID("_ScaleA");
         static readonly int ScaleBId = Shader.PropertyToID("_ScaleB");
+        static readonly int OriginEcefId = Shader.PropertyToID("_OceanOriginEcef");
+
+        // The ocean's look, for the terrain's own water (Terrain.shader), so the two match where
+        // they meet at a tile edge.
+        static readonly int SeaWaveNormalAId = Shader.PropertyToID("_SeaWaveNormalA");
+        static readonly int SeaWaveNormalBId = Shader.PropertyToID("_SeaWaveNormalB");
+        static readonly int SeaWaveAId = Shader.PropertyToID("_SeaWaveA");
+        static readonly int SeaWaveBId = Shader.PropertyToID("_SeaWaveB");
+        static readonly int SeaDeepId = Shader.PropertyToID("_SeaDeepColor");
+        static readonly int SeaScatterId = Shader.PropertyToID("_SeaScatterColor");
+        static readonly int SeaSkyId = Shader.PropertyToID("_SeaSkyFallback");
+        static readonly int SeaSunId = Shader.PropertyToID("_SeaSun");
 
         double scrollTime;
 
@@ -234,6 +246,28 @@ namespace CirrusFS.Geo
             Shader.SetGlobalVector(UvOriginBId, WrappedTiles(GeoOrigin.Ecef, scrollB, scaleB));
             GeoMath.EcefToGeodetic(cameraEcef, out _, out _, out double cameraHeight);
             Shader.SetGlobalFloat(CameraHeightId, (float)Math.Max(0.0, cameraHeight));
+            Shader.SetGlobalVector(OriginEcefId, new Vector4((float)GeoOrigin.Ecef.x, (float)GeoOrigin.Ecef.y,
+                                                             (float)GeoOrigin.Ecef.z, 0f));
+            PublishLook((float)scaleA, (float)scaleB);
+        }
+
+        void PublishLook(float scaleA, float scaleB)
+        {
+            Material m = material;
+            float F(string name, float fallback) => m.HasProperty(name) ? m.GetFloat(name) : fallback;
+            Color C(string name, Color fallback) => m.HasProperty(name) ? m.GetColor(name) : fallback;
+            Shader.SetGlobalTexture(SeaWaveNormalAId, m.HasProperty("_WaveNormalA") ? m.GetTexture("_WaveNormalA") : null);
+            Shader.SetGlobalTexture(SeaWaveNormalBId, m.HasProperty("_WaveNormalB") ? m.GetTexture("_WaveNormalB") : null);
+            Shader.SetGlobalVector(SeaWaveAId, new Vector4(scaleA, F("_StrengthA", 0.9f), F("_FadeA", 6000f), 0f));
+            Shader.SetGlobalVector(SeaWaveBId, new Vector4(scaleB, F("_StrengthB", 0.7f), F("_FadeB", 30000f), 0f));
+            // As vectors, already linear: a material's Color property reaches its shader converted
+            // to linear, a global colour does not, and the two waters must get the same numbers.
+            Shader.SetGlobalVector(SeaDeepId, (Vector4)C("_DeepColor", new Color(0.015f, 0.09f, 0.26f)).linear);
+            Shader.SetGlobalVector(SeaScatterId, (Vector4)C("_ScatterColor", new Color(0.03f, 0.2f, 0.33f)).linear);
+            Shader.SetGlobalVector(SeaSkyId, (Vector4)C("_SkyFallback", new Color(0.45f, 0.62f, 0.82f)).linear);
+            Shader.SetGlobalVector(SeaSunId, new Vector4(F("_GlintPower", 900f), F("_GlintIntensity", 18f),
+                                                         F("_SheenPower", 60f), F("_SheenIntensity", 0.15f)));
+            Shader.SetGlobalFloat("_SeaReflectionStrength", F("_ReflectionStrength", 0.8f));
         }
 
         Vector4 WrappedTiles(Double3 origin, Vector3 scroll, double scale)
