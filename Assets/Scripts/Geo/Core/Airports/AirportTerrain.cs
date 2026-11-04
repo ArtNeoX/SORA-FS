@@ -139,17 +139,20 @@ namespace CirrusFS.Geo
     /// Packs the runways and frames over one terrain chunk into the arrays the terrain shader
     /// reads, in the chunk's local frame (x east, z north, metres from its centre).
     ///
-    /// Runways: three float4 each.
+    /// Runways: five float4 each (RunwayMarkings decides the marking values).
     ///   [0] centre x, centre z, unit direction x, z (from the le end toward the he end)
     ///   [1] half length, half width, surface (RunwaySurface), flags (1 approx, 2 lighted)
-    ///   [2] le displaced threshold, he displaced threshold, le number, he number (for markings)
+    ///   [2] le displaced threshold, he displaced threshold, le designator, he designator
+    ///   [3] le arrow runoff, le blast pad, he arrow runoff, he blast pad (metres beyond the ends)
+    ///   [4] marking class, rubber 0..1, threshold stripes, random seed
     /// Frames: per polygon one header float4 (centre x, z, radius, edge count + 16 x class id)
     /// and then one float4 per edge (outward normal x, z, offset, 0): inside where every
     /// dot(n, p) - offset is negative.
     public sealed class AirportChunkPacker
     {
         public const int MaxRunways = 16;
-        public const int RunwayVectors = 3 * MaxRunways;
+        public const int VectorsPerRunway = 5;
+        public const int RunwayVectors = VectorsPerRunway * MaxRunways;
         public const int FrameVectors = 96;
 
         public readonly Vector4[] RunwayData = new Vector4[RunwayVectors];
@@ -227,11 +230,17 @@ namespace CirrusFS.Geo
                     float length = axis.magnitude;
                     if (length < 1f) continue;
                     Vector2 dir = axis / length, mid = 0.5f * (le + he);
-                    int k = 3 * RunwayCount++;
+                    int k = VectorsPerRunway * RunwayCount++;
+                    RunwayMarkings.Runoff(r, false, out float leArrows, out float leBlast);
+                    RunwayMarkings.Runoff(r, true, out float heArrows, out float heBlast);
                     RunwayData[k] = new Vector4(mid.x, mid.y, dir.x, dir.y);
                     RunwayData[k + 1] = new Vector4(0.5f * length, 0.5f * r.Width, (float)r.Surface,
                                                     (r.Approx ? 1f : 0f) + (r.Lighted ? 2f : 0f));
-                    RunwayData[k + 2] = new Vector4(r.LeDisplaced, r.HeDisplaced, Number(r.LeIdent), Number(r.HeIdent));
+                    RunwayData[k + 2] = new Vector4(r.LeDisplaced, r.HeDisplaced,
+                                                    RunwayMarkings.Designator(r.LeIdent), RunwayMarkings.Designator(r.HeIdent));
+                    RunwayData[k + 3] = new Vector4(leArrows, leBlast, heArrows, heBlast);
+                    RunwayData[k + 4] = new Vector4((float)RunwayMarkings.Classify(r), RunwayMarkings.Rubber(r),
+                                                    RunwayMarkings.ThresholdStripes(r.Width), Seed(r.Id));
                     packed = true;
                 }
                 if (packed) AirportCount++;
@@ -245,18 +254,13 @@ namespace CirrusFS.Geo
             return new Vector2((float)Double3.Dot(rel, east), (float)Double3.Dot(rel, north));
         }
 
-        /// The number of a runway designator ("09L" -> 9), 0 when it has none.
-        public static float Number(string ident)
+        /// A per-runway random offset for the shader's procedural detail (0..997), so no two
+        /// runways have the same slab tones and rubber streaks.
+        static float Seed(string id)
         {
-            if (string.IsNullOrEmpty(ident)) return 0f;
-            int n = 0, digits = 0;
-            foreach (char ch in ident)
-            {
-                if (ch < '0' || ch > '9') break;
-                n = n * 10 + (ch - '0');
-                digits++;
-            }
-            return digits > 0 && n <= 36 ? n : 0f;
+            uint h = 2166136261u;
+            if (id != null) foreach (char ch in id) h = (h ^ ch) * 16777619u;
+            return h % 997u;
         }
 
         /// The ground an airport's frame shows, from the land around it: rings at 1.5, 2.5 and

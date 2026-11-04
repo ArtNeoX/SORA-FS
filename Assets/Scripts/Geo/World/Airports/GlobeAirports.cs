@@ -86,7 +86,11 @@ namespace CirrusFS.Geo
             loading = Task.Run(() => AirportDatabase.Load(folder, fs));
         }
 
-        void OnEnable() => Active = this;
+        void OnEnable()
+        {
+            Active = this;
+            Shader.SetGlobalTexture(RunwayDetailTexture.Id, RunwayDetailTexture.Get());
+        }
 
         // Inspector edits in play mode: re-lay out the airports once the values stop changing.
         void OnValidate()

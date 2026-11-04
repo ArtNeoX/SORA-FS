@@ -31,7 +31,7 @@ namespace CirrusFS.Geo.Tests
 
         static Airport MakeAirport(double lat, double lon, params (double heading, double length, float width, double eastOffset)[] runways)
         {
-            var a = new Airport { Id = "1", Ident = "TEST", Icao = "TEST", Name = "Test Field", Latitude = lat, Longitude = lon, Elevation = 12f };
+            var a = new Airport { Id = "1", Ident = "TEST", Icao = "TEST", Name = "Test Field", Type = AirportType.Small, Latitude = lat, Longitude = lon, Elevation = 12f };
             var origin = new AirportLayoutProbe(lat, lon);
             int n = 0;
             foreach (var r in runways)
@@ -212,7 +212,14 @@ namespace CirrusFS.Geo.Tests
             Assert.AreEqual((expected + 360.0) % 360.0, (heading + 360f) % 360f, 0.3);
             Assert.AreEqual(30f, b.y, 0.01f);              // half width
             Assert.AreEqual((float)RunwaySurface.Asphalt, b.z);
-            Assert.AreEqual(15f, packer.RunwayData[2].z);  // le number
+            Assert.AreEqual(115f, packer.RunwayData[2].z); // le designator 15L
+            Assert.AreEqual(233f, packer.RunwayData[2].w); // he designator 33R
+            // large airport, 3768 x 60 m, lit: precision markings, 16 keys, full rubber, runoff
+            Vector4 marks = packer.RunwayData[4], runoff = packer.RunwayData[3];
+            Assert.AreEqual((float)RunwayMarkingClass.Precision, marks.x);
+            Assert.AreEqual(1f, marks.y);
+            Assert.AreEqual(16f, marks.z);
+            Assert.AreEqual(new Vector4(90f, 60f, 90f, 60f), runoff);
 
             // frame header: edges + 16 x class
             Vector4 header = packer.FrameData[0];
@@ -251,13 +258,90 @@ namespace CirrusFS.Geo.Tests
             Assert.AreEqual(-1f, lowPatch.Apply(37.0, 127.0, -1f));
         }
 
+        // ---- markings -----------------------------------------------------------------------
+
         [Test]
-        public void RunwayNumbers()
+        public void RunwayDesignators()
         {
-            Assert.AreEqual(9f, AirportChunkPacker.Number("09L"));
-            Assert.AreEqual(33f, AirportChunkPacker.Number("33R"));
-            Assert.AreEqual(0f, AirportChunkPacker.Number("N"));
-            Assert.AreEqual(0f, AirportChunkPacker.Number("H1"));
+            Assert.AreEqual(1109f, RunwayMarkings.Designator("09L"));   // 9, L, leading zero
+            Assert.AreEqual(9f, RunwayMarkings.Designator("9"));
+            Assert.AreEqual(233f, RunwayMarkings.Designator("33R"));
+            Assert.AreEqual(318f, RunwayMarkings.Designator("18C"));
+            Assert.AreEqual(36f, RunwayMarkings.Designator("36"));
+            Assert.AreEqual(0f, RunwayMarkings.Designator("N"));
+            Assert.AreEqual(0f, RunwayMarkings.Designator("H1"));
+            Assert.AreEqual(0f, RunwayMarkings.Designator("45"));
+            Assert.AreEqual(0f, RunwayMarkings.Designator(null));
+        }
+
+        [Test]
+        public void ThresholdStripesFollowTheWidth()
+        {
+            Assert.AreEqual(4, RunwayMarkings.ThresholdStripes(18f));
+            Assert.AreEqual(6, RunwayMarkings.ThresholdStripes(23f));
+            Assert.AreEqual(8, RunwayMarkings.ThresholdStripes(30f));
+            Assert.AreEqual(12, RunwayMarkings.ThresholdStripes(45f));
+            Assert.AreEqual(16, RunwayMarkings.ThresholdStripes(60f));
+        }
+
+        static Runway MarkingRunway(AirportType type, float length, float width, bool lighted,
+                                    RunwaySurface surface = RunwaySurface.Asphalt, float leDisplaced = 0f)
+        {
+            var a = new Airport { Id = "1", Ident = "TEST", Type = type };
+            var r = new Runway { Id = "1", Airport = a, Length = length, Width = width, Lighted = lighted,
+                                 Surface = surface, LeDisplaced = leDisplaced };
+            a.Runways.Add(r);
+            return r;
+        }
+
+        [Test]
+        public void MarkingClassRubberAndRunoffByAirport()
+        {
+            Runway big = MarkingRunway(AirportType.Large, 3500f, 45f, true);
+            Assert.AreEqual(RunwayMarkingClass.Precision, RunwayMarkings.Classify(big));
+            Assert.AreEqual(1f, RunwayMarkings.Rubber(big));
+            RunwayMarkings.Runoff(big, false, out float arrows, out float pad);
+            Assert.AreEqual(90f, arrows);
+            Assert.AreEqual(60f, pad);
+            Assert.AreEqual(150f, RunwayMarkings.MaxRunoff(big));
+
+            // a displaced threshold already has its own arrows: only the blast pad is added
+            Runway displaced = MarkingRunway(AirportType.Large, 3500f, 45f, true, leDisplaced: 300f);
+            RunwayMarkings.Runoff(displaced, false, out arrows, out pad);
+            Assert.AreEqual(0f, arrows);
+            Assert.AreEqual(60f, pad);
+            RunwayMarkings.Runoff(displaced, true, out arrows, out _);
+            Assert.AreEqual(90f, arrows);
+
+            Runway regional = MarkingRunway(AirportType.Medium, 2100f, 45f, true);
+            Assert.AreEqual(RunwayMarkingClass.Precision, RunwayMarkings.Classify(regional));
+            RunwayMarkings.Runoff(regional, false, out arrows, out pad);
+            Assert.AreEqual(0f, arrows);
+            Assert.AreEqual(45f, pad);
+            Assert.Less(RunwayMarkings.Rubber(regional), 1f);
+
+            Runway strip = MarkingRunway(AirportType.Small, 800f, 18f, false);
+            Assert.AreEqual(RunwayMarkingClass.Visual, RunwayMarkings.Classify(strip));
+            Assert.AreEqual(0f, RunwayMarkings.Rubber(strip));
+            Assert.AreEqual(0f, RunwayMarkings.MaxRunoff(strip));
+
+            Runway lit = MarkingRunway(AirportType.Small, 1000f, 23f, true);
+            Assert.AreEqual(RunwayMarkingClass.NonPrecision, RunwayMarkings.Classify(lit));
+
+            Runway grass = MarkingRunway(AirportType.Large, 3000f, 45f, true, RunwaySurface.Grass);
+            Assert.AreEqual(RunwayMarkingClass.None, RunwayMarkings.Classify(grass));
+            Assert.AreEqual(0f, RunwayMarkings.MaxRunoff(grass));
+        }
+
+        [Test]
+        public void RunoffLengthensTheFrameAndThePavedRectangle()
+        {
+            Airport a = MakeAirport(37.0, 127.0, (90.0, 3000.0, 45f, 0.0));
+            a.Type = AirportType.Large;
+            AirportLayout l = AirportLayout.Build(a, AirportFrameSettings.Default);
+            // 1500 m half length + 150 m end margin + 150 m runoff
+            Assert.AreEqual(0.0, l.Frames[0].SignedDistance(new Double2(1800, 0)), 0.5);
+            Assert.AreEqual(1650.0, l.RunwayRects[0].HalfLength, 0.5);
         }
     }
 }

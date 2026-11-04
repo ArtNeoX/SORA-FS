@@ -349,7 +349,9 @@ and there's nothing to z-fight.
 - When `GlobeTerrain` builds a chunk, `AirportChunkPacker` writes the runways and frames that
   reach it into the chunk's MaterialPropertyBlock:
   - `_AirportCounts`;
-  - `_AirportRunways[48]`: 16 runways, 3 float4 each;
+  - `_AirportRunways[80]`: 16 runways, 5 float4 each (centre and direction; half sizes,
+    surface, flags; displaced thresholds and designators; runoff per end; marking class,
+    rubber, threshold stripes, seed);
   - `_AirportFrames[96]`: per polygon one header and one float4 per edge.
 - Coordinates are chunk-local east/north metres.
 - `Terrain.shader` tests each pixel against them:
@@ -360,8 +362,30 @@ and there's nothing to z-fight.
   - Edge anti-aliasing is anisotropic: the edge width is the pixel's footprint along the distance
     field's gradient. On a low approach a pixel spans ~1 m across the runway but 50 m or more
     along the view, so taking the pixel's largest extent blurred the whole runway away.
-  - `AirportRunway` already gives runway-local coordinates (along from the le threshold,
-    across from the centreline) for markings later.
+  - `AirportRunway` gives runway-local coordinates (along from the le end, across from the
+    centreline, left positive). Its box includes the runoff beyond each end.
+- **Markings and pavement** (`RunwayPaint.hlsl`, rules in `Core/Airports/RunwayMarkings.cs`).
+  OurAirports has no marking type, so it is derived per runway:
+  - Class: precision (large/medium airport, lit, >= 1800 x 30 m), non-precision (lit or
+    >= 1200 m), visual (other paved). Grass, dirt, gravel, sand, snow and water get none.
+  - Threshold: piano keys by width (4/6/8/12/16, ICAO table 5-1), 30 m long, 45 m on
+    runways 45 m or wider. Visual runways get a single threshold bar instead.
+  - Designator 12 m past the keys: segment font, number above the L/C/R letter, read upright
+    from the approach. The leading zero is drawn when the data writes one ("09").
+  - Centreline dashes (30 m on, 20 m off), aiming point (ICAO distances by length), touchdown
+    zone bars 3-3-2-2-1-1 on precision runways, side stripes.
+  - Displaced thresholds: bar, arrowheads and centreline arrows. Large airports with runways of
+    2400 m or more also get a 90 m arrow runoff before the end where there is none in the
+    data, and long runways get a blast pad (60 / 45 m) with yellow chevrons. The frame and
+    the height patch's paved rectangle grow by the runoff.
+  - Pavement: concrete slabs (~6 x 7.5 m, sealed joints, per-slab tone), asphalt lanes and
+    panels with repair patches, grain and stains.
+  - Rubber: streaks in the touchdown zone, heaviest in the main gear tracks, scaled by
+    airport type and length (`RunwayMarkings.Rubber`).
+  - All of it is box-filtered against the pixel footprint in runway axes, and the noise
+    (`_RunwayDetail`, from `RunwayDetailTexture`) is sampled with explicit gradients. So
+    marks fade to their average coverage instead of shimmering.
+  - Material knobs: `_RunwayPaint`, `_RunwayPaintYellow`, `_RunwayRubber`, `_RunwayRubberStrength`.
 - Runways and frames under `minPixels` on screen are left off coarse chunks. Chunks without
   airports skip the whole branch.
 

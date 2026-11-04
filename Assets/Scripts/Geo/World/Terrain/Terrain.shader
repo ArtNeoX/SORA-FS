@@ -72,6 +72,10 @@ Shader "CirrusFS/Terrain"
         _RunwayGravel ("Runway gravel", Color) = (0.56, 0.53, 0.49, 1)
         _RunwaySand ("Runway sand", Color) = (0.74, 0.68, 0.55, 1)
         _RunwaySnow ("Runway snow", Color) = (0.92, 0.93, 0.95, 1)
+        _RunwayPaint ("Runway paint (white)", Color) = (0.86, 0.86, 0.84, 1)
+        _RunwayPaintYellow ("Runway paint (yellow)", Color) = (0.93, 0.74, 0.12, 1)
+        _RunwayRubber ("Rubber deposits", Color) = (0.13, 0.13, 0.135, 1)
+        _RunwayRubberStrength ("Rubber strength", Range(0, 1)) = 0.92
         _FrameEdgeNoise ("Frame edge waviness (m)", Float) = 14
         _FrameEdgeSoftness ("Frame edge softness (m)", Float) = 6
 
@@ -99,7 +103,8 @@ Shader "CirrusFS/Terrain"
             half4 _HazeColor;
             float _HazeDistance, _AtmosphereHeight;
             half4 _RunwayAsphalt, _RunwayConcrete, _RunwayGrassTint, _RunwayDirt, _RunwayGravel,
-                  _RunwaySand, _RunwaySnow;
+                  _RunwaySand, _RunwaySnow, _RunwayPaint, _RunwayPaintYellow, _RunwayRubber;
+            half _RunwayRubberStrength;
             float _FrameEdgeNoise, _FrameEdgeSoftness;
         CBUFFER_END
 
@@ -165,8 +170,10 @@ Shader "CirrusFS/Terrain"
             // Airports, per chunk (GlobeAirports / AirportChunkPacker), in chunk-local metres
             // (x east, z north). Unset (zero counts) on chunks without airports.
             float4 _AirportCounts;          // x runways, y frame float4s used
-            float4 _AirportRunways[48];     // 3 per runway: centre.xz dir.xz | half length, half width, surface, flags | displaced, numbers
+            float4 _AirportRunways[80];     // 5 per runway: centre.xz dir.xz | half length, half width, surface, flags | displaced, designators | runoff | marking class, rubber, stripes, seed
             float4 _AirportFrames[96];      // per polygon: centre.xz, radius, edges + 16 x class | then per edge: normal.xz, offset
+
+            #include "RunwayPaint.hlsl"
 
             struct Attributes
             {
@@ -357,35 +364,41 @@ Shader "CirrusFS/Terrain"
                 }
             }
 
-            // Nearest runway: signed distance to its rectangle (metres), its surface, and the
-            // runway-local coordinates (x along from the le end, y across from the centreline)
-            // that markings will use.
-            void AirportRunway(float2 p, out float sd, out uint surface, out float2 local, out float2 gradient)
+            // Nearest runway: signed distance to its paved rectangle (metres, runoff areas beyond
+            // the ends included), its surface and index, and the runway-local coordinates
+            // (x along from the le end, y across from the centreline, left positive).
+            void AirportRunway(float2 p, out float sd, out uint surface, out float2 local, out float2 gradient,
+                               out int index)
             {
                 sd = 1e6;
                 surface = 0;
                 local = 0;
                 gradient = float2(1, 0);
+                index = 0;
                 int count = (int)_AirportCounts.x;
                 [loop] for (int r = 0; r < count; r++)
                 {
-                    float4 a = _AirportRunways[3 * r];
-                    float4 b = _AirportRunways[3 * r + 1];
+                    float4 a = _AirportRunways[5 * r];
+                    float4 b = _AirportRunways[5 * r + 1];
+                    float4 ro = _AirportRunways[5 * r + 3];
                     float2 along = a.zw, across = float2(-a.w, a.z);
                     float2 q = p - a.xy;
                     float2 v = float2(dot(q, along), dot(q, across));
-                    float2 dd = abs(v) - b.xy;
+                    float pre = ro.x + ro.y, post = ro.z + ro.w;
+                    float2 vb = float2(v.x - 0.5 * (post - pre), v.y);
+                    float2 dd = abs(vb) - float2(b.x + 0.5 * (pre + post), b.y);
                     float d = length(max(dd, 0.0)) + min(max(dd.x, dd.y), 0.0);
                     if (d < sd)
                     {
                         sd = d;
                         surface = (uint)(b.z + 0.5);
                         local = float2(v.x + b.x, v.y);
+                        index = r;
                         // gradient of the box distance, in the runway's axes, then the chunk's
                         float2 o = max(dd, 0.0);
                         float2 gl = (o.x > 0.0 || o.y > 0.0) ? o / max(length(o), 1e-4)
                                                              : (dd.x > dd.y ? float2(1, 0) : float2(0, 1));
-                        gl *= float2(v.x < 0.0 ? -1.0 : 1.0, v.y < 0.0 ? -1.0 : 1.0);
+                        gl *= float2(vb.x < 0.0 ? -1.0 : 1.0, vb.y < 0.0 ? -1.0 : 1.0);
                         gradient = gl.x * along + gl.y * across;
                     }
                 }
@@ -529,6 +542,7 @@ Shader "CirrusFS/Terrain"
                 half3 frameAlbedo = albedo;
                 uint runwaySurface = 0;
                 float2 runwayLocal = 0.0;
+                int runwayIndex = 0;
                 [branch] if (_AirportCounts.x + _AirportCounts.y > 0.5)
                 {
                     float sdFrame;
@@ -548,7 +562,7 @@ Shader "CirrusFS/Terrain"
 
                     float sdRunway;
                     float2 runwayGradient;
-                    AirportRunway(posOS, sdRunway, runwaySurface, runwayLocal, runwayGradient);
+                    AirportRunway(posOS, sdRunway, runwaySurface, runwayLocal, runwayGradient, runwayIndex);
                     // analytic coverage of the pixel: sharp up close, a faint line far away
                     runway = saturate(0.5 - sdRunway / max(FootprintAlong(runwayGradient, dPosX, dPosY), 1e-3));
                     water *= 1.0 - runway;
@@ -567,14 +581,29 @@ Shader "CirrusFS/Terrain"
                     rockAlbedo = GroundTexture(rockAlbedo, _TerrainRockParams, _TerrainRockTint.rgb, g);
                 albedo = lerp(albedo, rockAlbedo * (0.8 + 0.4 * nMid.r), rock);
 
-                // the runway itself: flat colour by surface, a little of the ground detail
+                // the runway itself: colour by surface; paved ones get pavement texture, rubber
+                // and markings (RunwayPaint.hlsl), the rest a little of the ground detail
                 [branch] if (runway > 0.001)
                 {
                     half frameLuma = dot(frameAlbedo, half3(0.2126, 0.7152, 0.0722));
                     half3 frameGround = lerp(frameLuma.xxx, frameAlbedo, _Saturation) * _Brightness;
                     half3 runwayAlbedo = RunwayAlbedo(runwaySurface, frameGround);
-                    if (runwaySurface != 2) runwayAlbedo *= _Brightness;
-                    runwayAlbedo *= 1.0 + detail * 0.5;
+                    bool paved = runwaySurface == 0 || runwaySurface == 1 || runwaySurface >= 8;
+                    [branch] if (paved)
+                    {
+                        float2 along = _AirportRunways[5 * runwayIndex].zw;
+                        float2 acrossDir = float2(-along.y, along.x);
+                        float2 dLx = float2(dot(dPosX, along), dot(dPosX, acrossDir));
+                        float2 dLy = float2(dot(dPosY, along), dot(dPosY, acrossDir));
+                        runwayAlbedo = RunwayPaint(runwayIndex, runwayLocal, dLx, dLy, runwayAlbedo, runwaySurface,
+                                                   _RunwayPaint.rgb, _RunwayPaintYellow.rgb, _RunwayRubber.rgb,
+                                                   _RunwayRubberStrength) * _Brightness;
+                    }
+                    else
+                    {
+                        if (runwaySurface != 2) runwayAlbedo *= _Brightness;
+                        runwayAlbedo *= 1.0 + detail * 0.5;
+                    }
                     albedo = lerp(albedo, runwayAlbedo, runway);
                 }
 

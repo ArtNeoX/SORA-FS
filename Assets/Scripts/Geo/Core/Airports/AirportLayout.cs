@@ -277,9 +277,20 @@ namespace CirrusFS.Geo
                 Double2 along = axis * (1.0 / length);
                 Double2 across = new Double2(-along.y, along.x);        // left of along
                 double halfW = 0.5 * r.Width + Math.Max(fs.lateralMin, fs.lateralWidthFactor * r.Width);
-                double halfL = 0.5 * length + fs.EndMargin(length);
+                // Paved runoff (arrows, blast pad) beyond each end is part of the paved
+                // rectangle, and the frame grows by the longer of the two.
+                RunwayMarkings.Runoff(r, false, out float leArrows, out float leBlast);
+                RunwayMarkings.Runoff(r, true, out float heArrows, out float heBlast);
+                double leRunoff = leArrows + leBlast, heRunoff = heArrows + heBlast;
+                double halfL = 0.5 * length + fs.EndMargin(length) + Math.Max(leRunoff, heRunoff);
                 Double2 c = (le + he) * 0.5;
-                layout.RunwayRects.Add(new RunwayRect { Centre = c, Along = along, HalfLength = 0.5 * length, HalfWidth = 0.5 * r.Width });
+                layout.RunwayRects.Add(new RunwayRect
+                {
+                    Centre = c + along * (0.5 * (heRunoff - leRunoff)),
+                    Along = along,
+                    HalfLength = 0.5 * (length + leRunoff + heRunoff),
+                    HalfWidth = 0.5 * r.Width,
+                });
                 layout.RunwayExtent = Math.Max(layout.RunwayExtent, c.Length + Math.Sqrt(0.25 * length * length + 0.25 * r.Width * r.Width));
                 // counter-clockwise: right-back, right-front, left-front, left-back
                 rects.Add(new[]
