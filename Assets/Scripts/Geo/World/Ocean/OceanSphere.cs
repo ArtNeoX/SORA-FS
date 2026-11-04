@@ -305,7 +305,12 @@ namespace CirrusFS.Geo
             double angleToNode = Math.Acos(Math.Max(-1.0, Math.Min(1.0, cosToNode)));
             // 0.2 deg (~22 km) of slack covers the ellipsoid's departure from the sphere used here.
             double horizonAngle = Math.Acos(horizonCos) + 0.0035;
-            double nodeAngle = node.radius / GeoMath.B;
+            // node.radius is a chord (straight line to the farthest vertex). As an angle at the
+            // Earth's centre that is 2 asin(chord / 2r); radius / B, the small-node shortcut,
+            // falls short for big nodes: a whole cube face reaches 0.955 rad but radius / B
+            // gave 0.92, so near a cube corner (35.26 N 135 E, three faces meeting: Kansai,
+            // Chubu) all three faces were culled at low altitude and the sea vanished.
+            double nodeAngle = 2.0 * Math.Asin(Math.Min(1.0, node.radius / (2.0 * GeoMath.B)));
 
             return angleToNode - nodeAngle < horizonAngle;
         }

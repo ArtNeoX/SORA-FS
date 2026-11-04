@@ -77,6 +77,9 @@ crashlytics-build.properties
 # Terrain tiles from SceneryDataGen/terrain_exporter_v2 (large binary data)
 /TerrainData/
 
+# Airport data from SceneryDataGen/airport_exporter (regenerated from OurAirports)
+/AirportData/
+
 # Python tool caches and IDE folders under SceneryDataGen
 __pycache__/
 /SceneryDataGen/**/.idea/

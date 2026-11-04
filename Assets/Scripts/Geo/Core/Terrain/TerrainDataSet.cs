@@ -44,6 +44,13 @@ namespace CirrusFS.Geo
         public float hMin, hMax, landFraction;
     }
 
+    /// Changes a tile's heights after they are read (AirportHeightPatch lifts runways on
+    /// reclaimed land out of the sea). Called for every height sample, so return early.
+    public interface ITerrainHeightPatch
+    {
+        float Apply(double latDeg, double lonDeg, float height);
+    }
+
     /// One 1° x 1° tile on disk. The height and class files are memory-mapped, so an open tile
     /// costs address space and OS page cache, not managed memory, and a coarse chunk that
     /// touches a few hundred samples reads only those pages.
@@ -168,6 +175,16 @@ namespace CirrusFS.Geo
         /// the coarser folder near edges it shares with that folder (smoothstep, all of it on
         /// the edge itself). Everything that needs ground height goes through this.
         public float SampleHeight(double latDeg, double lonDeg)
+        {
+            float h = SampleBlendedHeight(latDeg, lonDeg);
+            return HeightPatch != null ? HeightPatch.Apply(latDeg, lonDeg, h) : h;
+        }
+
+        /// Set by whoever changes this tile's heights (airports). Rendering, collision,
+        /// autogen and spawning all read heights through SampleHeight, so they agree.
+        public ITerrainHeightPatch HeightPatch;
+
+        float SampleBlendedHeight(double latDeg, double lonDeg)
         {
             float h = SampleOwnHeight(latDeg, lonDeg);
             if (Blends == null) return h;

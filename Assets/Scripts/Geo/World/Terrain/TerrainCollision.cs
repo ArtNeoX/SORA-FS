@@ -161,6 +161,10 @@ namespace CirrusFS.Geo
             if (p.mesh != null) UnityEngine.Object.Destroy(p.mesh);
         }
 
+        /// Drops the colliders; they are rebuilt in the next physics step (terrain heights
+        /// changed, e.g. airport height patches).
+        public void Rebuild() => Clear();
+
         void Clear()
         {
             if (pieces.Count == 0) return;

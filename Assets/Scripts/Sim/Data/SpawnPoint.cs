@@ -23,6 +23,13 @@ namespace CirrusFS.Sim
         [Tooltip("True airspeed at spawn, knots. Used only when the spawn is airborne.")]
         public float speedKnots;
 
+        [Tooltip("Airborne spawn on final approach: descending on a 3 degree path, gear down, " +
+                 "landing flaps, approach throttle (from the aircraft's data), instead of cruise.")]
+        public bool approach;
+
+        /// Descent angle of an approach start, degrees.
+        public const double GlidePathDeg = 3.0;
+
         public static SpawnPoint Default => new SpawnPoint
         {
             latitude = 37.09,

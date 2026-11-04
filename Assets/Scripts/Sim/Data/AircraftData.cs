@@ -43,6 +43,21 @@ namespace CirrusFS.Sim
         /// suspension settles it.
         public float spawn_clearance_m = 0.05f;
 
+        /// Airspeed for a start on final approach, knots.
+        public float approach_speed_kt = 95f;
+
+        /// Flap detent for a start on final approach (index into the flight model's flap
+        /// angles); -1 = the last (landing) detent.
+        public int approach_flap_index = -1;
+
+        /// Throttle lever for a start on final approach, 0..1: roughly what holds the approach
+        /// speed on a 3 degree glidepath.
+        public float approach_throttle = 0.35f;
+
+        /// Pitch attitude for a start on final approach, degrees nose up: the attitude that
+        /// flies the approach speed on the glidepath (angle of attack minus the 3 degree descent).
+        public float approach_pitch_deg = 2.5f;
+
         public bool selectable = true;
 
         // ---- clean accessors -----------------------------------------------------

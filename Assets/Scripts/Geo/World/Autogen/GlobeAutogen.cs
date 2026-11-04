@@ -135,6 +135,15 @@ namespace CirrusFS.Geo
 
         void MarkDirty() => dirty = true;
 
+        /// Drops the built patches (the layers stay); they are rebuilt as they come into range.
+        /// For when the ground they stand on changed (airports loaded).
+        public void ClearPatches()
+        {
+            foreach (Patch p in patches.Values) p.buffer?.Release();
+            patches.Clear();
+            foreach (LayerRuntime l in layers) l.drawn.Clear();
+        }
+
         void ClearAll()
         {
             foreach (Patch p in patches.Values) p.buffer?.Release();
@@ -265,7 +274,9 @@ namespace CirrusFS.Geo
             data.Touch(tile);
             // stand on the triangles the terrain draws (and collides with) at its finest level
             long meshK = terrainInUse != null ? (1L << terrainInUse.MaxLevelOf(tile)) * terrainInUse.resolution : 0;
-            int count = AutogenPlacement.Build(tile, c.row, c.column, c.layer.settings, scratch, meshK);
+            // nothing grows on airport ground
+            IAutogenExclusion exclusion = GlobeAirports.Active != null ? GlobeAirports.Active.Database : null;
+            int count = AutogenPlacement.Build(tile, c.row, c.column, c.layer.settings, scratch, meshK, exclusion);
 
             var p = new Patch
             {

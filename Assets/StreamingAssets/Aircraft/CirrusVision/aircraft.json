@@ -8,5 +8,9 @@
   "prefab_resource_path": "",
   "gear_height_m": 3.19,
   "spawn_clearance_m": 0.05,
+  "approach_speed_kt": 135,
+  "approach_flap_index": -1,
+  "approach_throttle": 0.45,
+  "approach_pitch_deg": 2.5,
   "selectable": true
 }

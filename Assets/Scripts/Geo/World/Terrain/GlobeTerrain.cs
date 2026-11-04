@@ -101,6 +101,8 @@ namespace CirrusFS.Geo
         [Tooltip("Ground textures per land class (optional). Without it every class is flat colour.")]
         public TerrainClassTextures classTextures;
 
+        [Tooltip("Airports drawn on the terrain (runways and their frames). Defaults to GlobeAirports.Active.")]
+        public GlobeAirports airports;
         static readonly int ClassTexId = Shader.PropertyToID("_ClassTex");
         static readonly int PaletteId = Shader.PropertyToID("_TerrainPalette");
         static readonly int DetailId = Shader.PropertyToID("_TerrainDetail");
@@ -113,7 +115,6 @@ namespace CirrusFS.Geo
         static readonly int ClassTintId = Shader.PropertyToID("_TerrainClassTint");
         static readonly int RockParamsId = Shader.PropertyToID("_TerrainRockParams");
         static readonly int RockTintId = Shader.PropertyToID("_TerrainRockTint");
-
         public TerrainDataSet Data { get; private set; }
 
         public int VisibleChunkCount { get; private set; }
@@ -241,12 +242,19 @@ namespace CirrusFS.Geo
             }
         }
 
-        /// Reads the manifests. Safe to call again after exporting more tiles.
-        public void LoadData()
+        /// Drops every built chunk; they are rebuilt as they come into view, the ones near the
+        /// focus at once. For when what goes into a chunk changed (airports loaded).
+        public void RebuildChunks()
         {
             foreach (Chunk chunk in chunks.Values) DestroyChunk(chunk);
             chunks.Clear();
             shownLastFrame.Clear();
+        }
+
+        /// Reads the manifests. Safe to call again after exporting more tiles.
+        public void LoadData()
+        {
+            RebuildChunks();
             tileMaxLevel.Clear();
             Data?.Dispose();
 
@@ -351,8 +359,7 @@ namespace CirrusFS.Geo
             Shader.SetGlobalVectorArray(ClassParamsId, classParams);
             Shader.SetGlobalVectorArray(ClassTintId, classTint);
             Shader.SetGlobalVector(RockParamsId, rockParams);
-            Shader.SetGlobalVector(RockTintId, rockTint);
-        }
+            Shader.SetGlobalVector(RockTintId, rockTint);        }
 
         Vector4 TextureParams(TerrainClassTextures.Entry entry, double refCos)
         {
@@ -447,6 +454,19 @@ namespace CirrusFS.Geo
         {
             height = 0f;
             return Data != null && Data.TryGetHeight(latitudeDeg, longitudeDeg, out height);
+        }
+
+        /// Height of the surface that is drawn and collided with up close (the triangles of the
+        /// tile's finest level), metres. Differs from TryGetHeight by up to a few metres
+        /// between vertices; use it to put things on the ground, such as a spawning aircraft.
+        public bool TryGetSurfaceHeight(double latitudeDeg, double longitudeDeg, out float height)
+        {
+            height = 0f;
+            TerrainTileSource tile = Data?.TileContaining(latitudeDeg, longitudeDeg);
+            if (tile == null) return false;
+            long verticesPerDegree = (1L << MaxLevelOf(tile)) * resolution;
+            height = TerrainChunkBuilder.SurfaceHeight(tile, latitudeDeg, GeoMath.WrapLongitude(longitudeDeg), verticesPerDegree);
+            return true;
         }
 
         // ---- per frame ------------------------------------------------------------
@@ -675,13 +695,16 @@ namespace CirrusFS.Geo
             Data.Touch(tile);
             TerrainChunkData d = buildData;
             TerrainChunkBuilder.Build(Data, tile, level, x, y, resolution, classTexels, true, d);
-            Chunk chunk = MakeChunk(d, $"Terrain {tile.Id} L{level} ({x},{y})", ClassCells(tile, level, x, y));
+            double size = 1.0 / (1 << level);
+            Chunk chunk = MakeChunk(d, $"Terrain {tile.Id} L{level} ({x},{y})", ClassCells(tile, level, x, y),
+                                    tile, tile.Lat + y * size, tile.Lon + x * size, size);
             chunk.tile = tile;
             chunk.level = level;
             return chunk;
         }
 
-        Chunk MakeChunk(TerrainChunkData d, string name, Vector4 classCells)
+        Chunk MakeChunk(TerrainChunkData d, string name, Vector4 classCells, TerrainTileSource tile,
+                        double lat0, double lon0, double size)
         {
             var mesh = new Mesh { name = name };
             mesh.SetVertices(d.Vertices, 0, d.VertexCount);
@@ -714,6 +737,11 @@ namespace CirrusFS.Geo
             block.Clear();
             block.SetTexture(ClassTexId, classTex);
             block.SetVector(ClassCellsId, classCells);
+            // A chunk at its split distance shows its vertex spacing at maxVertexAngle / lodQuality
+            // radians; a pixel is about 1 mrad (1080p, 60 deg): so a metre there is this many pixels.
+            GlobeAirports a = airports != null ? airports : GlobeAirports.Active;
+            if (a != null)
+                a.FillChunk(block, tile, lat0, lon0, size, d, maxVertexAngle / Math.Max(lodQuality, 0.05f) / 0.001);
             renderer.SetPropertyBlock(block);
             renderer.enabled = false;
 

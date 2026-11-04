@@ -385,6 +385,16 @@ namespace CirrusFS.Flight
             }
         }
 
+        /// Sets a flap detent and moves the flaps straight to it, for a spawn on final approach.
+        /// -1 (or anything past the end) = the last detent.
+        public void PrimeFlaps(int detent)
+        {
+            if (config.flapAngles == null || config.flapAngles.Length == 0) return;
+            int last = config.flapAngles.Length - 1;
+            flapIndex = detent < 0 || detent > last ? last : detent;
+            flapPos = config.flapAngles[flapIndex];
+        }
+
         /// I^-1 * torque, both in the aircraft's local frame.
         Vector3 AngularAcceleration(Vector3 torqueLocal)
         {

@@ -4,6 +4,14 @@ using UnityEngine;
 
 namespace CirrusFS.Geo
 {
+    /// Ground where autogen must not stand (airport frames). `Touches` is asked once per
+    /// patch, `Excludes` only for the candidates of patches it touches.
+    public interface IAutogenExclusion
+    {
+        bool Touches(double latMin, double lonMin, double latMax, double lonMax);
+        bool Excludes(double latDeg, double lonDeg);
+    }
+
     /// Where autogen objects (trees, later buildings) stand, from the terrain tiles alone.
     ///
     /// The world is cut into patches of 1/128° × 1/128° (about 870 × 690 m at 37° N), each
@@ -67,10 +75,11 @@ namespace CirrusFS.Geo
         /// `meshVerticesPerDegree` vertices per degree (its finest level), or the tile's
         /// bilinear surface when that is 0. Returns the instance count.
         public static int Build(TerrainTileSource tile, long row, long column, in Settings s, Result r,
-                                long meshVerticesPerDegree = 0)
+                                long meshVerticesPerDegree = 0, IAutogenExclusion exclusion = null)
         {
             r.Data.Clear();
             double lat0 = SouthOf(row), lon0 = WestOf(column);
+            if (exclusion != null && !exclusion.Touches(lat0, lon0, lat0 + PatchSize, lon0 + PatchSize)) exclusion = null;
             double latC = lat0 + 0.5 * PatchSize, lonC = lon0 + 0.5 * PatchSize;
 
             float hC = tile.SampleHeight(latC, lonC);
@@ -115,6 +124,7 @@ namespace CirrusFS.Geo
 
                     double lat = lat0 + fy * PatchSize, lon = lon0 + fx * PatchSize;
                     if (!s.classMask[tile.ClassAt(lat, lon)]) continue;
+                    if (exclusion != null && exclusion.Excludes(lat, lon)) continue;
 
                     double ground = meshVerticesPerDegree > 0
                         ? TerrainChunkBuilder.SurfaceHeight(tile, lat, lon, meshVerticesPerDegree)

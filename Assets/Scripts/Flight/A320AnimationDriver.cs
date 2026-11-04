@@ -246,6 +246,13 @@ namespace CirrusFS.Flight
             GearPosition = 1f;
         }
 
+        /// Gear down and locked, for a spawn on the ground or on final approach.
+        public void SetGearExtended()
+        {
+            GearLeverDown = true;
+            GearPosition = 0f;
+        }
+
         // Retraction is inhibited with weight on any wheel.
         void UpdateGearLever(float dt, bool weightOnWheels)
         {

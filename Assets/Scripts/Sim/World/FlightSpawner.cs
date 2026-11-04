@@ -57,12 +57,16 @@ namespace CirrusFS.Sim
             GameObject instance = Resolve(aircraft.Data);
             if (instance == null) return null;
 
-            // The surface under the spawn point: terrain where a tile exists, never below the sea.
+            // The surface under the spawn point: terrain where a tile exists (the triangles the
+            // gear will roll on, not the smoother data surface), never below the sea.
             float terrain = 0f;
             bool hasTerrain = GlobeTerrain.Active != null &&
-                              GlobeTerrain.Active.TryGetHeight(spawn.latitude, spawn.longitude, out terrain);
-            double ground = Math.Max(0.0, terrain);
-            bool onLand = hasTerrain && terrain > 0f;
+                              GlobeTerrain.Active.TryGetSurfaceHeight(spawn.latitude, spawn.longitude, out terrain);
+            // Airport ground counts as land even below sea level (Schiphol, the Caspian).
+            bool onAirport = hasTerrain && GlobeAirports.Active != null && GlobeAirports.Active.Database != null &&
+                             GlobeAirports.Active.Database.FrameAt(spawn.latitude, spawn.longitude) != null;
+            double ground = onAirport ? terrain : Math.Max(0.0, terrain);
+            bool onLand = hasTerrain && (terrain > 0f || onAirport);
 
             bool airborne = spawn.altitude > ground + airborneAbove;
             double height = airborne ? spawn.altitude : Math.Max(spawn.altitude, ground + aircraft.Data.SpawnHeight);
@@ -71,10 +75,19 @@ namespace CirrusFS.Sim
             Double3 ecef = GeoMath.GeodeticToEcef(spawn.latitude, spawn.longitude, height);
             GeoOrigin.Reset(ecef);
 
-            Quaternion rotation = GeoOrigin.HeadingPitchRollToUnity(spawn.latitude, spawn.longitude,
-                                                                    spawn.heading, 0.0, 0.0);
+            // On final approach the aircraft is already descending along the glidepath, nose
+            // up at its approach attitude.
+            bool approach = airborne && spawn.approach;
+            float speedKnots = approach ? aircraft.Data.approach_speed_kt : spawn.speedKnots;
+            Quaternion heading = GeoOrigin.HeadingPitchRollToUnity(spawn.latitude, spawn.longitude,
+                                                                   spawn.heading, 0.0, 0.0);
+            Quaternion rotation = approach
+                ? GeoOrigin.HeadingPitchRollToUnity(spawn.latitude, spawn.longitude, spawn.heading,
+                                                    aircraft.Data.approach_pitch_deg, 0.0)
+                : heading;
+            float descent = approach ? (float)(SpawnPoint.GlidePathDeg * GeoMath.Deg2Rad) : 0f;
             Vector3 velocity = airborne
-                ? rotation * Vector3.forward * (spawn.speedKnots / 1.943844f)
+                ? heading * new Vector3(0f, -Mathf.Sin(descent), Mathf.Cos(descent)) * (speedKnots / 1.943844f)
                 : Vector3.zero;
 
             // The pose is set while the object is inactive: an inactive Rigidbody has no
@@ -88,10 +101,26 @@ namespace CirrusFS.Sim
 
             geoBody.Teleport(ecef, rotation, velocity);
 
-            if (airborne)
+            instance.TryGetComponent(out AircraftController controller);
+            instance.TryGetComponent(out A320AnimationDriver systems);
+            if (approach)
             {
-                if (instance.TryGetComponent(out AircraftController controller)) controller.PrimeThrottle(airborneThrottle);
-                if (instance.TryGetComponent(out A320AnimationDriver systems)) systems.SetGearRetracted();
+                // landing configuration: gear down, landing flaps, approach power
+                if (controller != null)
+                {
+                    controller.PrimeThrottle(aircraft.Data.approach_throttle);
+                    controller.PrimeFlaps(aircraft.Data.approach_flap_index);
+                }
+                if (systems != null) systems.SetGearExtended();
+            }
+            else if (airborne)
+            {
+                if (controller != null) controller.PrimeThrottle(airborneThrottle);
+                if (systems != null) systems.SetGearRetracted();
+            }
+            else if (systems != null)
+            {
+                systems.SetGearExtended();   // the aircraft may be reused from a flight that ended gear up
             }
 
             Physics.SyncTransforms();
@@ -99,9 +128,10 @@ namespace CirrusFS.Sim
             CurrentAircraft = instance;
             CurrentSpawn = spawn;
 
-            Debug.Log($"[FlightSpawner] {aircraft.Data.DisplayName} at {spawn} " +
-                      $"({(airborne ? $"airborne, {spawn.speedKnots:F0} kt" : onLand ? $"on the ground at {ground:F0} m" : "on the water")}). " +
-                      $"{GeoOrigin.Describe()}");
+            string how = approach ? $"on final approach, {speedKnots:F0} kt, gear down, flaps {(controller != null ? controller.FlapIndex : 0)}"
+                       : airborne ? $"airborne, {speedKnots:F0} kt"
+                       : onLand ? $"on the ground at {ground:F0} m" : "on the water";
+            Debug.Log($"[FlightSpawner] {aircraft.Data.DisplayName} at {spawn} ({how}). {GeoOrigin.Describe()}");
 
             onAircraftSpawned.Invoke(instance);
             return instance;

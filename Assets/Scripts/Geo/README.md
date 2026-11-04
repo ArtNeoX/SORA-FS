@@ -300,9 +300,81 @@ apply live in play mode.
   compressed (DXT5). The tree textures import with *mip maps preserve coverage*, so canopies
   don't thin out in the far mips.
 
+## 7. Airports (runways and cleared frames)
+
+**Data.**
+- `SceneryDataGen/airport_exporter` writes `AirportData/` (gitignored) from OurAirports.
+  The CSV schema is in its README.
+- `GlobeAirports` (`World/Airports`, on the `Airports` object in Flight.unity) loads the data
+  on a worker thread at start, about 1.4 s in the editor for the whole world.
+- The data lives in `AirportDatabase` (`Core/Airports`, no Unity calls). It holds the records,
+  a 1° tile index, and the ICAO/IATA/name search the start menu uses.
+
+**Layout (`AirportLayout`).** Each airport is laid out in the tangent plane at its reference
+point.
+- **Runway rectangles** come from the two end coordinates.
+- **Frame:** each runway is widened by max(30 m, 1 x width) beside each edge and by
+  60/100/150 m past each end (runways under 1200 m / under 1800 m / longer).
+- **Infield:** an airport with several runways clears the convex hull of all of them. The hull
+  is cut down to at most 8 edges, only growing, never shrinking. It is used only while its
+  diameter is under 8 km and its area is under 6x the runway frames' area; otherwise each
+  runway keeps its own frame.
+- **Ground class:** a frame shows one class, picked from rings 1.5–3.5 km around the airport.
+  Mostly snow gives Snow / ice; mostly rock or sand gives whichever of the two dominates; anything
+  else gives Grass.
+
+**Drawing.** Runways are part of the terrain surface, so they follow the elevation at every LOD
+and there's nothing to z-fight.
+- When `GlobeTerrain` builds a chunk, `AirportChunkPacker` writes the runways and frames that
+  reach it into the chunk's MaterialPropertyBlock:
+  - `_AirportCounts`;
+  - `_AirportRunways[48]`: 16 runways, 3 float4 each;
+  - `_AirportFrames[96]`: per polygon one header and one float4 per edge.
+- Coordinates are chunk-local east/north metres.
+- `Terrain.shader` tests each pixel against them:
+  - The frame replaces the class blend with the frame class. Its edge is waved by Earth-anchored
+    noise (`_FrameEdgeNoise`), and it also switches off steep-slope rock and the sea-floor clip.
+  - The runway is drawn on top in a colour per surface (`_Runway*`), with analytic pixel coverage,
+    so it fades instead of flickering far away.
+  - Edge anti-aliasing is anisotropic: the edge width is the pixel's footprint along the distance
+    field's gradient. On a low approach a pixel spans ~1 m across the runway but 50 m or more
+    along the view, so taking the pixel's largest extent blurred the whole runway away.
+  - `AirportRunway` already gives runway-local coordinates (along from the le threshold,
+    across from the centreline) for markings later.
+- Runways and frames under `minPixels` on screen are left off coarse chunks. Chunks without
+  airports skip the whole branch.
+
+**Ground under the airport.**
+- **Height patch.** `AirportHeightPatch` is set as `TerrainTileSource.HeightPatch` on every tile
+  an airport reaches.
+  - **The problem:** with 280 m between global height samples, a shore runway such as TNCM's lies
+    on the slope between a land vertex and a −5 m sea vertex, below the h = 0 ocean.
+  - **The fix:** around the runway, ground is kept at least the airport elevation, clamped to
+    1–3 m. The lifted points are exactly those whose ±1 height-cell box overlaps a runway: the
+    vertices of every triangle under it. So the coast gains at most one cell of land.
+  - **Left alone:** ground above 3 m (all inland terrain) and airports published below 0.5 m (real
+    land below sea level, such as Schiphol or the Caspian).
+  - Rendering, collision, autogen and spawning all read it through `SampleHeight`.
+  - **Limit:** coarse chunks beyond about 35 km don't sample the lifted points, so a shore runway
+    can sit under the sea in the far distance until the finest level takes over.
+- **Frame size** is `GlobeAirports.frame`. Edits in play mode re-lay out every airport after
+  0.3 s (about 0.3 s of work) and rebuild the chunks; edits there are lost when play mode ends.
+- **Autogen.** Autogen asks `IAutogenExclusion` (the database), so trees stay 15 m clear of
+  frames.
+- **Late load.** If the data arrives after chunks, colliders or autogen patches were built, those
+  are rebuilt.
+
 ## Tests
 
 `Assets/Tests/EditMode` (assembly `CirrusFS.Geo.Tests`, run from the Test Runner, EditMode):
+
+- Airports (`AirportTests`):
+  - the CSV reader;
+  - frame margins and the infield hull;
+  - that hull simplification never loses area;
+  - search ranking and accent folding;
+  - chunk-local runway packing;
+  - that the height patch leaves land below sea level alone.
 
 - `GeodeticToEcef(0,0,0) = (6378137, 0, 0)`, and `(90,0,0) = (0, 0, 6356752.314)` to ±1 mm.
 - Geodetic → ECEF → geodetic round trip under 1 mm, at 20,000 random points plus poles,
